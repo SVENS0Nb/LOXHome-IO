@@ -1,46 +1,118 @@
 {
   "config": {
     "abort": {
-      "single_instance_allowed": "Bereits konfiguriert"
+      "already_configured": "Dieser Loxone Miniserver ist bereits konfiguriert.",
+      "single_instance_allowed": "Bereits konfiguriert",
+      "cannot_connect": "Die Verbindung zum Loxone Miniserver konnte nicht hergestellt werden."
+    },
+    "error": {
+      "cannot_connect": "Verbindung fehlgeschlagen. Bitte URL, Port und Netzwerk prüfen.",
+      "invalid_auth": "Benutzername oder Passwort ist ungültig.",
+      "invalid_characters": "Benutzername und Passwort dürfen nur Latin-1-Zeichen enthalten.",
+      "insecure_connection": "HTTP überträgt die Zugangsdaten unverschlüsselt. Aktiviere die unsichere HTTP-Verbindung ausdrücklich oder verwende HTTPS.",
+      "invalid_url": "Die URL muss mit http:// oder https:// beginnen."
     },
     "step": {
       "user": {
-        "title": "Loxone",
-        "description": "Loxone Konfiguration",
+        "title": "LOXHome I/O einrichten",
+        "description": "Verbindung prüfen und die vom Loxone-Benutzer freigegebenen Steuerelemente laden.",
         "data": {
           "username": "Benutzer",
           "port": "Port",
-          "host": "Miniserver Ip",
-          "password": "Password",
+          "host": "Miniserver-URL oder Hostname",
+          "password": "Passwort",
           "verify_ssl": "TLS-Zertifikat des Miniservers prüfen",
-          "generate_scenes": "Scenen generieren",
+          "allow_insecure_http": "Unsichere HTTP-Verbindung ausdrücklich erlauben",
+          "generate_scenes": "Szenen generieren",
           "generate_lightcontroller_subcontrols": "LightControllerV2-Subcontrols standardmäßig aktivieren",
-          "generate_scenes_delay": "Verzögerung beim erstellen der Scenen (wenn aktiviert)"
+          "generate_scenes_delay": "Verzögerung beim Erstellen der Szenen (wenn aktiviert)"
+        }
+      },
+      "entities": {
+        "title": "Loxone-Entitäten auswählen",
+        "description": "Es wurden {count} mögliche Entitäten gefunden. Nur die hier ausgewählten Entitäten werden in Home Assistant angelegt.",
+        "data": {
+          "selected_entities": "Zu importierende Entitäten"
+        }
+      },
+      "door_profile": {
+        "title": "Türprofil {current} von {total}: {door}",
+        "description": "Der Verriegelungszustand stammt aus dem WindowMonitor. Weise nur Befehle zu, die an deiner Anlage nachweislich die beschriebene physische Aktion auslösen. Nicht zugeordnete Aktionen bleiben gesperrt.",
+        "data": {
+          "lock_action": "Verriegeln-Aktion",
+          "unlock_action": "Entriegeln-Aktion",
+          "open_action": "Türfalle öffnen"
         }
       }
     }
   },
   "options": {
+    "abort": {
+      "cannot_connect": "Die Loxone-Struktur konnte nicht geladen werden."
+    },
+    "error": {
+      "cannot_connect": "Verbindung fehlgeschlagen. Bitte URL, Port und Netzwerk prüfen.",
+      "invalid_auth": "Benutzername oder Passwort ist ungültig.",
+      "invalid_characters": "Benutzername und Passwort dürfen nur Latin-1-Zeichen enthalten.",
+      "insecure_connection": "HTTP überträgt die Zugangsdaten unverschlüsselt. Aktiviere die unsichere HTTP-Verbindung ausdrücklich oder verwende HTTPS.",
+      "invalid_url": "Die URL muss mit http:// oder https:// beginnen.",
+      "wrong_miniserver": "Die Verbindung verweist auf einen anderen Miniserver."
+    },
     "step": {
       "init": {
+        "title": "LOXHome I/O konfigurieren",
+        "description": "Wähle aus, was geändert werden soll.",
+        "menu_options": {
+          "entities": "Importierte Entitäten auswählen",
+          "connection": "Verbindung bearbeiten"
+        }
+      },
+      "connection": {
+        "title": "Loxone-Verbindung bearbeiten",
+        "description": "Aktualisiere und prüfe die Verbindung zum Miniserver.",
         "data": {
           "username": "Benutzer",
           "port": "Port",
-          "host": "Miniserver Ip",
-          "password": "Password",
+          "host": "Miniserver-URL oder Hostname",
+          "password": "Passwort",
           "verify_ssl": "TLS-Zertifikat des Miniservers prüfen",
-          "generate_scenes": "Scenen generieren",
+          "allow_insecure_http": "Unsichere HTTP-Verbindung ausdrücklich erlauben",
+          "generate_scenes": "Szenen generieren",
           "generate_lightcontroller_subcontrols": "LightControllerV2-Subcontrols standardmäßig aktivieren",
-          "generate_scenes_delay": "Verzögerung beim erstellen der Scenen (wenn aktiviert)"
-        },
-        "description": "PyLoxone Einstellungen editieren:",
-        "title": "PyLoxone Einstellungen"
+          "generate_scenes_delay": "Verzögerung beim Erstellen der Szenen (wenn aktiviert)"
+        }
+      },
+      "entities": {
+        "title": "Loxone-Entitäten auswählen",
+        "description": "Es wurden {count} mögliche Entitäten gefunden. Änderungen werden nach dem Speichern durch ein Neuladen der Integration angewendet.",
+        "data": {
+          "selected_entities": "Zu importierende Entitäten"
+        }
+      },
+      "door_profile": {
+        "title": "Türprofil {current} von {total}: {door}",
+        "description": "Optionale physische Aktionen für diese Tür. Nicht zugeordnete Aktionen bleiben gesperrt.",
+        "data": {
+          "lock_action": "Verriegeln-Aktion",
+          "unlock_action": "Entriegeln-Aktion",
+          "open_action": "Türfalle öffnen"
+        }
       }
     }
   },
   "services": {
+    "sync_areas": {
+      "name": "Bereiche synchronisieren",
+      "description": "Ordnet Loxone-Entitäten anhand ihrer Loxone-Räume bestehenden Home-Assistant-Bereichen zu.",
+      "fields": {
+        "create_areas": {
+          "name": "Bereiche erstellen",
+          "description": "Erstellt fehlende Home-Assistant-Bereiche automatisch."
+        }
+      }
+    },
     "reload": {
-      "name": "Pyloxone Reload",
+      "name": "LOXHome I/O neu laden",
       "description": "Lädt die Loxone-Integration neu, indem eine erneute Verbindung zum Miniserver hergestellt und alle Entitäten aktualisiert werden. Dies ist nützlich nach Konfigurationsänderungen in Loxone Config oder bei Verbindungsproblemen. Alle aktuellen Entitätszustände werden vom Miniserver neu synchronisiert."
     },
     "event_websocket_command": {
@@ -50,6 +122,10 @@
         "uuid": {
           "name": "UUID",
           "description": "UUID für die Entität, and die du einen Befehl senden möchtest."
+        },
+        "config_entry_id": {
+          "name": "Miniserver-Konfiguration",
+          "description": "ID des Loxone-Konfigurationseintrags, wenn keine Entität verwendet wird."
         },
         "device": {
           "name": "Gerät",
@@ -68,6 +144,10 @@
         "uuid": {
           "name": "UUID",
           "description": "UUID für die Entität, and die du einen Befehl senden möchtest."
+        },
+        "config_entry_id": {
+          "name": "Miniserver-Konfiguration",
+          "description": "ID des Loxone-Konfigurationseintrags, wenn keine Entität verwendet wird."
         },
         "device": {
           "name": "Gerät",

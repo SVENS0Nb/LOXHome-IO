@@ -18,7 +18,13 @@ from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import dt as dt_util
 
 from . import LoxoneEntity
-from .const import DOMAIN, SENDDOMAIN
+from .catalog import (
+    action_selection_key,
+    control_is_selected,
+    entity_is_selected,
+    sauna_selection_key,
+)
+from .const import DOMAIN
 from .helpers import add_room_and_cat_to_value_values, get_all
 from .miniserver import get_miniserver_from_hass
 
@@ -46,10 +52,70 @@ async def async_setup_entry(
     entities = []
 
     for button_entity in get_all(loxconfig, ["Pushbutton"]):
+        if not control_is_selected(config_entry, button_entity, "button"):
+            continue
         button_entity = add_room_and_cat_to_value_values(loxconfig, button_entity)
         entities.append(LoxoneButton(**button_entity))
 
+    for action_control in get_all(
+        loxconfig, ["NfcCodeTouch", "NFCCodeTouch", "NFC Code Touch"]
+    ):
+        action_control = add_room_and_cat_to_value_values(loxconfig, action_control)
+        action_control["config_entry_id"] = config_entry.entry_id
+        action_control["gateway_id"] = config_entry.unique_id or config_entry.entry_id
+        for output_key, output_name in (
+            action_control.get("details", {}).get("accessOutputs", {}) or {}
+        ).items():
+            output_number = str(output_key).lower().removeprefix("q")
+            command = f"output/{output_number}"
+            if not entity_is_selected(
+                config_entry,
+                action_selection_key(action_control["uuidAction"], command),
+            ):
+                continue
+            entities.append(
+                LoxoneActionButton(
+                    **action_control,
+                    name=f"{action_control['name']} {output_name}",
+                    command=command,
+                )
+            )
+
+    from .sauna import LoxoneSaunaTimerButton
+
+    for sauna in get_all(loxconfig, "Sauna"):
+        if not entity_is_selected(
+            config_entry, sauna_selection_key(sauna["uuidAction"], "start_timer")
+        ):
+            continue
+        sauna = add_room_and_cat_to_value_values(loxconfig, sauna)
+        sauna.update(
+            {
+                "hass": hass,
+                "config_entry_id": config_entry.entry_id,
+                "gateway_id": config_entry.unique_id or config_entry.entry_id,
+                "temperature_unit": loxconfig.get("msInfo", {}).get("tempUnit", 0),
+            }
+        )
+        entities.append(LoxoneSaunaTimerButton(**sauna))
+
     async_add_entities(entities)
+
+
+class LoxoneActionButton(LoxoneEntity, ButtonEntity):
+    """A named Loxone command exposed as a Home Assistant button."""
+
+    def __init__(self, *, command: str, **kwargs) -> None:
+        super().__init__(**kwargs)
+        self._command = command
+        self._source_uuid = self.uuidAction
+
+    @property
+    def unique_id(self) -> str:
+        return f"{self._gateway_id}-{self._source_uuid}-{self._command.replace('/', '-')}"
+
+    async def async_press(self) -> None:
+        await self.async_send_command(self._source_uuid, self._command)
 
 
 class LoxoneButton(LoxoneEntity, ButtonEntity):
@@ -102,9 +168,9 @@ class LoxoneButton(LoxoneEntity, ButtonEntity):
         """Return a unique ID."""
         return self._attr_unique_id
 
-    def press(self, **kwargs):
+    async def async_press(self, **kwargs):
         """Press the button."""
-        self.hass.bus.fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="pulse"))
+        await self.async_send_command(self.uuidAction, "pulse")
         self.schedule_update_ha_state()
 
     @property

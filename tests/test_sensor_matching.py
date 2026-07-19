@@ -1,6 +1,4 @@
 """Tests for Loxone sensor matching and device class detection."""
-import pytest
-
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import (
     CONCENTRATION_PARTS_PER_MILLION,

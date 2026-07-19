@@ -31,8 +31,18 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 from homeassistant.util import dt as dt_util
 
-from . import LoxoneEntity, MiniServer
-from .const import CONF_ACTIONID, DOMAIN, SENDDOMAIN, THROTTLE_KEEP_ALIVE_TIME
+from . import LoxoneEntity
+from .catalog import (
+    control_selection_key,
+    control_is_selected,
+    entity_is_selected,
+    feature_is_enabled,
+    sauna_selection_key,
+    subcontrol_selection_key,
+    system_selection_key,
+    ventilation_capability_is_enabled,
+)
+from .const import CONF_ACTIONID, DOMAIN, THROTTLE_KEEP_ALIVE_TIME
 from .helpers import (add_room_and_cat_to_value_values, clean_unit, get_all,
                       get_or_create_device)
 from .miniserver import get_miniserver_from_hass
@@ -204,17 +214,26 @@ async def async_setup_entry(
     miniserver = get_miniserver_from_hass(hass, config_entry)
 
     loxconfig = miniserver.lox_config.json
-    entities: list[Any] = [LoxoneKeepAliveSensor(miniserver.serial)]
+    entities: list[Any] = []
 
-    if "softwareVersion" in loxconfig:
+    if entity_is_selected(config_entry, system_selection_key("keepalive")):
+        entities.append(LoxoneKeepAliveSensor(miniserver.serial))
+
+    if "softwareVersion" in loxconfig and entity_is_selected(
+        config_entry, system_selection_key("version")
+    ):
         entities.append(LoxoneVersionSensor(miniserver.serial, loxconfig["softwareVersion"]))
 
     for sensor in get_all(loxconfig, "InfoOnlyAnalog"):
+        if not control_is_selected(config_entry, sensor, "sensor"):
+            continue
         sensor = add_room_and_cat_to_value_values(loxconfig, sensor)
         sensor.update({"type": "analog"})
         entities.append(LoxoneSensor(**sensor))
 
     for sensor in get_all(loxconfig, "TextInput"):
+        if not control_is_selected(config_entry, sensor, "sensor"):
+            continue
         sensor = add_room_and_cat_to_value_values(loxconfig, sensor)
         entities.append(LoxoneTextSensor(**sensor))
 
@@ -230,6 +249,13 @@ async def async_setup_entry(
             ("storage", "Level", "storageFormat"),
         ]:
             if state_key in sensor["states"]:
+                state_uuid = sensor["states"][state_key]
+                if not entity_is_selected(
+                    config_entry,
+                    subcontrol_selection_key(state_uuid, "sensor"),
+                    control_selection_key(sensor, "sensor"),
+                ):
+                    continue
                 subsensor = {
                     "device_info": device_info,
                     "parent_id": sensor["uuidAction"],
@@ -238,11 +264,71 @@ async def async_setup_entry(
                     "room": sensor.get("room", ""),
                     "cat": sensor.get("cat", ""),
                     "name": f"{sensor['name']} {name_suffix}",
-                    "details": {"format": sensor["details"][format_key]},
+                    "details": {
+                        "format": sensor.get("details", {}).get(format_key, "%.2f")
+                    },
                     "async_add_devices": async_add_entities,
                     "config_entry": config_entry,
                 }
                 entities.append(LoxoneMeterSensor(**subsensor))
+
+    for ventilation in get_all(loxconfig, "Ventilation"):
+        ventilation = add_room_and_cat_to_value_values(loxconfig, ventilation)
+        details = ventilation.get("details", {})
+        for state_key, state_name, state_format, capability in (
+            ("humidityIndoor", "Luftfeuchtigkeit", "%.1f%", "hasIndoorHumidity"),
+            ("airQualityIndoor", "Luftqualität", "%.1fppm", None),
+            ("temperatureOutdoor", "Außentemperatur", "%.1f°C", None),
+        ):
+            state_uuid = ventilation.get("states", {}).get(state_key)
+            if not state_uuid or not ventilation_capability_is_enabled(
+                details, capability
+            ):
+                continue
+            if not entity_is_selected(
+                config_entry,
+                subcontrol_selection_key(state_uuid, "sensor"),
+            ):
+                continue
+            entities.append(
+                LoxoneSensor(
+                    parent_id=ventilation["uuidAction"],
+                    uuidAction=state_uuid,
+                    type="analog",
+                    room=ventilation.get("room", ""),
+                    cat=ventilation.get("cat", ""),
+                    name=f"{ventilation['name']} - {state_name}",
+                    details={"format": state_format},
+                    async_add_devices=async_add_entities,
+                    config_entry=config_entry,
+                )
+            )
+
+    from .sauna import LoxoneSaunaSensor, SAUNA_SENSOR_DEFINITIONS
+
+    for sauna in get_all(loxconfig, "Sauna"):
+        sauna_uuid = sauna["uuidAction"]
+        sauna = add_room_and_cat_to_value_values(loxconfig, sauna)
+        sauna.update(
+            {
+                "hass": hass,
+                "config_entry_id": config_entry.entry_id,
+                "gateway_id": config_entry.unique_id or config_entry.entry_id,
+                "temperature_unit": loxconfig.get("msInfo", {}).get("tempUnit", 0),
+            }
+        )
+        for suffix, definition in SAUNA_SENSOR_DEFINITIONS.items():
+            if definition["state_name"] not in sauna.get("states", {}):
+                continue
+            if suffix == "humidity_actual" and not feature_is_enabled(
+                sauna.get("details", {}).get("hasVaporizer")
+            ):
+                continue
+            if not entity_is_selected(
+                config_entry, sauna_selection_key(sauna_uuid, suffix)
+            ):
+                continue
+            entities.append(LoxoneSaunaSensor(**definition, **sauna))
 
     @callback
     def async_add_sensors(_):
@@ -379,9 +465,7 @@ class LoxoneTextSensor(LoxoneEntity, SensorEntity):
 
     async def async_set_value(self, value):
         """Set new value."""
-        self.hass.bus.async_fire(
-            SENDDOMAIN, dict(uuid=self.uuidAction, value=f"{value}")
-        )
+        await self.async_send_command(self.uuidAction, f"{value}")
         self.async_schedule_update_ha_state()
 
     @property

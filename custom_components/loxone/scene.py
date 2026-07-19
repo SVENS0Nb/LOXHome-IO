@@ -13,8 +13,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
+from . import LoxoneEntity
 from .const import (CONF_SCENE_GEN, CONF_SCENE_GEN_DELAY, DEFAULT_DELAY_SCENE,
-                    DOMAIN, SENDDOMAIN)
+                    DOMAIN)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -75,6 +76,8 @@ async def async_setup_entry(
                         mood_id,
                         uuid,
                         entity.unique_id,
+                        config_entry.entry_id,
+                        config_entry.unique_id or config_entry.entry_id,
                     )
                 )
 
@@ -90,14 +93,29 @@ async def async_setup_entry(
     return True
 
 
-class Loxonelightscene(Scene):
+class Loxonelightscene(LoxoneEntity, Scene):
     """Representation of a Loxone light scene."""
 
-    def __init__(self, name, mood_id, uuid, light_controller_id):
+    def __init__(
+        self,
+        name,
+        mood_id,
+        uuid,
+        light_controller_id,
+        config_entry_id,
+        gateway_id,
+    ):
         """Initialize the scene."""
-        self.name = name
+        super().__init__(
+            name=name,
+            uuidAction=uuid,
+            type="LightControllerV2Mood",
+            room="",
+            cat="",
+            config_entry_id=config_entry_id,
+            gateway_id=gateway_id,
+        )
         self.mood_id = mood_id
-        self.uuidAction = uuid
         self._light_controller_id = light_controller_id
 
     @property
@@ -107,7 +125,6 @@ class Loxonelightscene(Scene):
 
     async def async_activate(self, **kwargs):
         """Activate scene. Try to get entities into requested state."""
-        self.hass.bus.async_fire(
-            SENDDOMAIN,
-            {"uuid": self.uuidAction, "value": f"changeTo/{self.mood_id}"},
+        await self.async_send_command(
+            self.uuidAction, f"changeTo/{self.mood_id}"
         )

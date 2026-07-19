@@ -2,9 +2,8 @@ colorlog==6.10.1
 homeassistant==2026.6.4
 pip>=21.3.1
 ruff==0.15.18
-websockets>=14
-pycryptodome
+websockets>=14,<17
+pycryptodome>=3.20,<4
 pytest
-httpx
 debugpy
 pre-commit

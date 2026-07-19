@@ -8,6 +8,12 @@ event_websocket_command:
       example: 0f1e0b31-0178-7f77-ffff402fb0c34b9e
       selector:
         text:
+    config_entry_id:
+      name: Miniserver configuration
+      description: Required with UUID to select the exact Loxone Miniserver
+      selector:
+        config_entry:
+          integration: loxone
     device:
       name: Entity
       description: Device which you want to send a command
@@ -30,6 +36,12 @@ event_secured_websocket_command:
       example: 0f1e0b31-0178-7f77-ffff402fb0c34b9e
       selector:
         text:
+    config_entry_id:
+      name: Miniserver configuration
+      description: Required with UUID to select the exact Loxone Miniserver
+      selector:
+        config_entry:
+          integration: loxone
     device:
       name: Entity
       description: Device which you want to send a command

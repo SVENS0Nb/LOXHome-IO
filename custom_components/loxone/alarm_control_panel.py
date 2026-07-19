@@ -17,7 +17,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from . import LoxoneEntity
-from .const import DOMAIN, SECUREDSENDDOMAIN, SENDDOMAIN
+from .catalog import control_is_selected
 from .helpers import (add_room_and_cat_to_value_values, get_all,
                       get_or_create_device)
 from .miniserver import get_miniserver_from_hass
@@ -57,6 +57,8 @@ async def async_setup_entry(
     loxconfig = miniserver.lox_config.json
     entities = []
     for loxone_alarm in get_all(loxconfig, "Alarm"):
+        if not control_is_selected(config_entry, loxone_alarm, "alarm_control_panel"):
+            continue
         loxone_alarm = add_room_and_cat_to_value_values(loxconfig, loxone_alarm)
         loxone_alarm.update({"code": None})
         new_alarm = LoxoneAlarm(**loxone_alarm)
@@ -177,39 +179,29 @@ class LoxoneAlarm(LoxoneEntity, AlarmControlPanelEntity):
     async def async_alarm_disarm(self, code=None):
         """Send disarm command."""
         if self.isSecured:
-            self.hass.bus.async_fire(
-                SECUREDSENDDOMAIN, dict(uuid=self.uuidAction, value="off", code=code)
-            )
+            await self.async_send_secured_command(self.uuidAction, "off", code)
         else:
-            self.hass.bus.async_fire(
-                SENDDOMAIN, dict(uuid=self.uuidAction, value="off")
-            )
+            await self.async_send_command(self.uuidAction, "off")
         self.async_schedule_update_ha_state()
 
     async def async_alarm_arm_home(self, code=None):
         """Send arm home command."""
         if self.isSecured:
-            self.hass.bus.async_fire(
-                SECUREDSENDDOMAIN,
-                dict(uuid=self.uuidAction, value="delayedon/0", code=code),
+            await self.async_send_secured_command(
+                self.uuidAction, "delayedon/0", code
             )
         else:
-            self.hass.bus.async_fire(
-                SENDDOMAIN, dict(uuid=self.uuidAction, value="delayedon/0")
-            )
+            await self.async_send_command(self.uuidAction, "delayedon/0")
         self.async_schedule_update_ha_state()
 
     async def async_alarm_arm_away(self, code=None):
         """Send arm away command."""
         if self.isSecured:
-            self.hass.bus.async_fire(
-                SECUREDSENDDOMAIN,
-                dict(uuid=self.uuidAction, value="delayedon/1", code=code),
+            await self.async_send_secured_command(
+                self.uuidAction, "delayedon/1", code
             )
         else:
-            self.hass.bus.async_fire(
-                SENDDOMAIN, dict(uuid=self.uuidAction, value="delayedon/1")
-            )
+            await self.async_send_command(self.uuidAction, "delayedon/1")
         self.async_schedule_update_ha_state()
 
     @property

@@ -9,20 +9,16 @@ import re
 
 from .const import DOMAIN, cfmt
 
-# Initialize a device registry
-device_registry = {}
-
 
 def get_or_create_device(device_uuid, device_name, device_type, device_room):
-    if device_uuid not in device_registry:
-        device_registry[device_uuid] = {
-            "identifiers": {(DOMAIN, device_uuid)},
-            "name": device_name,
-            "manufacturer": "Loxone",
-            "model": device_type,
-            "suggested_area": device_room,
-        }
-    return device_registry[device_uuid]
+    """Build current device information without retaining stale global state."""
+    return {
+        "identifiers": {(DOMAIN, device_uuid)},
+        "name": device_name,
+        "manufacturer": "Loxone",
+        "model": device_type,
+        "suggested_area": device_room,
+    }
 
 
 def map_range(value, in_min, in_max, out_min, out_max):
@@ -99,13 +95,16 @@ def get_cat_name_from_cat_uuid(lox_config: dict, cat_uuid: str):
 
 
 def add_room_and_cat_to_value_values(loxconfig: dict, sensor: dict):
-    sensor.update(
+    # A control can create entities on several platforms (for example Sauna
+    # and TextInput). Do not replace UUIDs in the shared structure in-place.
+    value = dict(sensor)
+    value.update(
         {
             "room": get_room_name_from_room_uuid(loxconfig, sensor.get("room", "")),
             "cat": get_cat_name_from_cat_uuid(loxconfig, sensor.get("cat", "")),
         }
     )
-    return sensor
+    return value
 
 
 def get_miniserver_type(t):

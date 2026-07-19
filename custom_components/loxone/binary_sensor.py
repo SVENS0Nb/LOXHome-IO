@@ -5,14 +5,10 @@ from __future__ import annotations
 import logging
 from typing import Literal, final
 
-import homeassistant.helpers.config_validation as cv
-import voluptuous as vol
 from homeassistant.components.binary_sensor import (BinarySensorDeviceClass,
                                                     BinarySensorEntity)
-from homeassistant.components.sensor import CONF_STATE_CLASS
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import (CONF_DEVICE_CLASS, CONF_NAME,
-                                 CONF_UNIT_OF_MEASUREMENT, CONF_VALUE_TEMPLATE,
+from homeassistant.const import (CONF_VALUE_TEMPLATE,
                                  STATE_OFF, STATE_ON, STATE_UNKNOWN)
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -20,7 +16,13 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from . import LoxoneEntity
-from .const import CONF_ACTIONID, DOMAIN, SENDDOMAIN
+from .catalog import (
+    control_is_selected,
+    entity_is_selected,
+    feature_is_enabled,
+    sauna_selection_key,
+    subcontrol_selection_key,
+)
 from .helpers import (add_room_and_cat_to_value_values, get_all,
                       get_or_create_device)
 from .miniserver import get_miniserver_from_hass
@@ -66,19 +68,86 @@ async def async_setup_entry(
     entities = []
 
     for sensor in get_all(loxconfig, "InfoOnlyDigital"):
+        if not control_is_selected(config_entry, sensor, "binary_sensor"):
+            continue
         sensor = add_room_and_cat_to_value_values(loxconfig, sensor)
         sensor.update({"type": "digital"})
         entities.append(LoxoneDigitalSensor(**sensor))
 
     for sensor in get_all(loxconfig, "PresenceDetector"):
+        if not control_is_selected(config_entry, sensor, "binary_sensor"):
+            continue
         sensor = add_room_and_cat_to_value_values(loxconfig, sensor)
         sensor.update({"type": "presence"})
         entities.append(LoxoneDigitalSensor(**sensor))
 
     for sensor in get_all(loxconfig, "SmokeAlarm"):
+        if not control_is_selected(config_entry, sensor, "binary_sensor"):
+            continue
         sensor = add_room_and_cat_to_value_values(loxconfig, sensor)
         sensor.update({"type": "smoke"})
         entities.append(LoxoneDigitalSensor(**sensor))
+
+    for ventilation in get_all(loxconfig, "Ventilation"):
+        state_uuid = ventilation.get("states", {}).get("presence")
+        if (
+            not state_uuid
+            or not feature_is_enabled(
+                ventilation.get("details", {}).get("hasPresence")
+            )
+            or not entity_is_selected(
+                config_entry,
+                subcontrol_selection_key(state_uuid, "binary_sensor"),
+            )
+        ):
+            continue
+        ventilation = add_room_and_cat_to_value_values(loxconfig, ventilation)
+        entities.append(
+            LoxoneDigitalSensor(
+                parent_id=ventilation["uuidAction"],
+                uuidAction=state_uuid,
+                type="presence",
+                room=ventilation.get("room", ""),
+                cat=ventilation.get("cat", ""),
+                name=f"{ventilation['name']} - Präsenz",
+                device_class="presence",
+                async_add_devices=async_add_entities,
+                config_entry=config_entry,
+            )
+        )
+
+    from .sauna import (
+        LoxoneSaunaBinarySensor,
+        SAUNA_BINARY_SENSOR_DEFINITIONS,
+    )
+
+    for sauna in get_all(loxconfig, "Sauna"):
+        sauna_uuid = sauna["uuidAction"]
+        sauna = add_room_and_cat_to_value_values(loxconfig, sauna)
+        sauna.update(
+            {
+                "hass": hass,
+                "config_entry_id": config_entry.entry_id,
+                "gateway_id": config_entry.unique_id or config_entry.entry_id,
+                "temperature_unit": loxconfig.get("msInfo", {}).get("tempUnit", 0),
+            }
+        )
+        for suffix, definition in SAUNA_BINARY_SENSOR_DEFINITIONS.items():
+            if definition["state_name"] not in sauna.get("states", {}):
+                continue
+            if suffix == "door" and not feature_is_enabled(
+                sauna.get("details", {}).get("hasDoorSensor")
+            ):
+                continue
+            if suffix == "low_water" and not feature_is_enabled(
+                sauna.get("details", {}).get("hasVaporizer")
+            ):
+                continue
+            if not entity_is_selected(
+                config_entry, sauna_selection_key(sauna_uuid, suffix)
+            ):
+                continue
+            entities.append(LoxoneSaunaBinarySensor(**definition, **sauna))
 
     @callback
     def async_add_binary_sensors(_):

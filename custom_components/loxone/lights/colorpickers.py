@@ -1,4 +1,6 @@
+import ast
 import logging
+import math
 from functools import cached_property
 
 import homeassistant.util.color as color_util
@@ -7,13 +9,33 @@ from homeassistant.components.light import (ATTR_BRIGHTNESS,
                                             ATTR_HS_COLOR, ColorMode,
                                             LightEntity)
 from homeassistant.const import STATE_UNKNOWN
-from homeassistant.helpers.device_registry import DeviceInfo
 
 from .. import LoxoneEntity
-from ..const import DOMAIN, SENDDOMAIN
 from ..helpers import get_or_create_device, hass_to_lox, lox_to_hass
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _parse_color_value(value, prefix: str, length: int):
+    """Parse a Loxone color tuple without executing input as Python code."""
+    if not isinstance(value, str) or not value.startswith(prefix):
+        return None
+    try:
+        parsed = ast.literal_eval(value[len(prefix) :])
+    except (SyntaxError, ValueError):
+        return None
+    if (
+        not isinstance(parsed, (tuple, list))
+        or len(parsed) != length
+        or not all(
+            isinstance(item, (int, float))
+            and not isinstance(item, bool)
+            and math.isfinite(float(item))
+            for item in parsed
+        )
+    ):
+        return None
+    return parsed
 
 
 class TunableWhiteLight(LoxoneEntity, LightEntity):
@@ -62,51 +84,42 @@ class TunableWhiteLight(LoxoneEntity, LightEntity):
         return True if self._attr_brightness and self._attr_brightness > 0 else False
 
     async def async_turn_off(self) -> None:
-        self.hass.bus.async_fire(
-            SENDDOMAIN, dict(uuid=self.uuidAction, value="setBrightness/0")
-        )
+        await self.async_send_command(self.uuidAction, "setBrightness/0")
         self.async_schedule_update_ha_state()
 
     async def async_turn_on(self, **kwargs) -> None:
         if ATTR_COLOR_TEMP_KELVIN in kwargs:
             self._attr_color_temp_kelvin = kwargs[ATTR_COLOR_TEMP_KELVIN]
-            self.hass.bus.async_fire(
-                SENDDOMAIN,
-                dict(
-                    uuid=self.uuidAction,
-                    value="temp({},{})".format(
-                        hass_to_lox(self._attr_brightness), self._attr_color_temp_kelvin
-                    ),
+            self._attr_brightness = kwargs.get(
+                ATTR_BRIGHTNESS, self._attr_brightness or 255
+            )
+            await self.async_send_command(
+                self.uuidAction,
+                "temp({},{})".format(
+                    hass_to_lox(self._attr_brightness), self._attr_color_temp_kelvin
                 ),
             )
         elif ATTR_BRIGHTNESS in kwargs:
             self._attr_brightness = kwargs[ATTR_BRIGHTNESS]
-            self.hass.bus.async_fire(
-                SENDDOMAIN,
-                dict(
-                    uuid=self.uuidAction,
-                    value="temp({},{})".format(
-                        hass_to_lox(self._attr_brightness), self._attr_color_temp_kelvin
-                    ),
-                ),
+            await self.async_send_command(
+                self.uuidAction,
+                f"setBrightness/{hass_to_lox(self._attr_brightness)}",
             )
         else:
-            self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="On"))
+            await self.async_send_command(self.uuidAction, "On")
 
     async def event_handler(self, e):
         request_update = False
         if self._color_uuid in e.data:
             _color = e.data[self._color_uuid]
 
-            if _color.startswith("temp"):
-                _color = _color.replace("temp", "")
-                _color = eval(_color)
+            if (_color := _parse_color_value(_color, "temp", 2)) is not None:
                 self._attr_color_mode = ColorMode.COLOR_TEMP
                 self._attr_color_temp_kelvin = _color[1]
                 self._attr_brightness = round(255 * _color[0] / 100)
                 request_update = True
             else:
-                _LOGGER.error("Not handled command -> %s", _color)
+                _LOGGER.error("Invalid Loxone tunable-white color state")
 
         if request_update:
             if not self._attr_available:
@@ -168,88 +181,65 @@ class RGBColorPicker(LoxoneEntity, LightEntity):
         return True if self._attr_brightness and self._attr_brightness > 0 else False
 
     async def async_turn_off(self) -> None:
-        self.hass.bus.async_fire(
-            SENDDOMAIN, dict(uuid=self.uuidAction, value="setBrightness/0")
-        )
+        await self.async_send_command(self.uuidAction, "setBrightness/0")
         self.async_schedule_update_ha_state()
 
     async def async_turn_on(self, **kwargs) -> None:
         if ATTR_HS_COLOR in kwargs:
+            self._attr_brightness = kwargs.get(
+                ATTR_BRIGHTNESS, self._attr_brightness or 255
+            )
             r, g, b = color_util.color_hs_to_RGB(
                 kwargs[ATTR_HS_COLOR][0], kwargs[ATTR_HS_COLOR][1]
             )
-            h, s, v = color_util.color_RGB_to_hsv(r, g, b)
-            self.hass.bus.async_fire(
-                SENDDOMAIN,
-                dict(
-                    uuid=self.uuidAction,
-                    value="hsv({},{},{})".format(
-                        h, s, hass_to_lox(self._attr_brightness)
-                    ),
+            h, s, _ = color_util.color_RGB_to_hsv(r, g, b)
+            await self.async_send_command(
+                self.uuidAction,
+                "hsv({},{},{})".format(
+                    h, s, hass_to_lox(self._attr_brightness)
                 ),
             )
         elif ATTR_COLOR_TEMP_KELVIN in kwargs:
             self._attr_color_temp_kelvin = kwargs[ATTR_COLOR_TEMP_KELVIN]
-            self.hass.bus.async_fire(
-                SENDDOMAIN,
-                dict(
-                    uuid=self.uuidAction,
-                    value="temp({},{})".format(
-                        hass_to_lox(self._attr_brightness), self._attr_color_temp_kelvin
-                    ),
+            self._attr_brightness = kwargs.get(
+                ATTR_BRIGHTNESS, self._attr_brightness or 255
+            )
+            await self.async_send_command(
+                self.uuidAction,
+                "temp({},{})".format(
+                    hass_to_lox(self._attr_brightness), self._attr_color_temp_kelvin
                 ),
             )
 
         elif ATTR_BRIGHTNESS in kwargs:
             self._attr_brightness = kwargs[ATTR_BRIGHTNESS]
-            if self._attr_color_mode == ColorMode.HS:
-                self.hass.bus.async_fire(
-                    SENDDOMAIN,
-                    dict(
-                        uuid=self.uuidAction,
-                        value="hsv({},{},{})".format(
-                            self.hs_color[0],
-                            self.hs_color[1],
-                            hass_to_lox(self._attr_brightness),
-                        ),
-                    ),
-                )
-            elif self._attr_color_mode == ColorMode.COLOR_TEMP:
-                self.hass.bus.async_fire(
-                    SENDDOMAIN,
-                    dict(
-                        uuid=self.uuidAction,
-                        value="temp({},{})".format(
-                            hass_to_lox(self._attr_brightness),
-                            self._attr_color_temp_kelvin,
-                        ),
-                    ),
-                )
+            await self.async_send_command(
+                self.uuidAction,
+                f"setBrightness/{hass_to_lox(self._attr_brightness)}",
+            )
         else:
-            self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="On"))
+            await self.async_send_command(self.uuidAction, "On")
 
     async def event_handler(self, e):
         request_update = False
         if self._color_uuid in e.data:
             _color = e.data[self._color_uuid]
 
-            if _color.startswith("hsv"):
-                _color = _color.replace("hsv", "")
-                _color = eval(_color)
+            if (_parsed_color := _parse_color_value(_color, "hsv", 3)) is not None:
+                _color = _parsed_color
                 self._attr_color_mode = ColorMode.HS
                 self._attr_hs_color = (_color[0], _color[1])
                 self._attr_brightness = lox_to_hass(_color[2])
                 request_update = True
-            elif _color.startswith("temp"):
-                _color = _color.replace("temp", "")
-                _color = eval(_color)
+            elif (_parsed_color := _parse_color_value(_color, "temp", 2)) is not None:
+                _color = _parsed_color
                 self._attr_color_mode = ColorMode.COLOR_TEMP
                 self._attr_color_temp_kelvin = _color[1]
                 self._attr_hs_color = None
                 self._attr_brightness = round(255 * _color[0] / 100)
                 request_update = True
             else:
-                _LOGGER.error("Not handled command -> %s", _color)
+                _LOGGER.error("Invalid Loxone RGB color state")
 
         if request_update:
             if not self._attr_available:

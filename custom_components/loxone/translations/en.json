@@ -1,46 +1,108 @@
 {
   "config": {
     "abort": {
-      "single_instance_allowed": "Already configured. Only a single configuration possible."
+      "already_configured": "This Loxone Miniserver is already configured.",
+      "single_instance_allowed": "Already configured. Only a single configuration possible.",
+      "cannot_connect": "The Loxone Miniserver could not be reached."
+    },
+    "error": {
+      "cannot_connect": "Connection failed. Check the URL, port and network.",
+      "invalid_auth": "The username or password is invalid.",
+      "invalid_characters": "Username and password may only contain Latin-1 characters.",
+      "insecure_connection": "HTTP sends credentials without encryption. Explicitly allow insecure HTTP or use HTTPS.",
+      "invalid_url": "The URL must use http:// or https://."
     },
     "step": {
       "user": {
-        "title": "Set up Loxone",
+        "title": "Set up LOXHome I/O",
         "description": "Configure your Loxone Miniserver connection",
         "data": {
           "username": "User",
           "port": "Port",
-          "host": "Miniserver Ip",
+          "host": "Miniserver URL or hostname",
           "password": "Password",
           "verify_ssl": "Verify the Miniserver TLS certificate",
+          "allow_insecure_http": "Explicitly allow insecure HTTP",
           "generate_scenes": "generate scenes",
           "generate_lightcontroller_subcontrols": "Enable LightControllerV2 subcontrols by default",
           "generate_scenes_delay": "Delay for the scene generation if enabled"
+        }
+      },
+      "entities": {
+        "title": "Select Loxone entities",
+        "description": "{count} possible entities were found. Only selected entities will be created in Home Assistant.",
+        "data": {
+          "selected_entities": "Entities to import"
+        }
+      },
+      "door_profile": {
+        "title": "Door profile {current} of {total}: {door}",
+        "description": "The lock state comes from WindowMonitor. Only map commands that are known to perform the described physical action. Unmapped actions remain blocked.",
+        "data": {
+          "lock_action": "Lock action",
+          "unlock_action": "Unlock action",
+          "open_action": "Open latch action"
         }
       }
     }
   },
   "options": {
+    "abort": {
+      "cannot_connect": "The Loxone structure could not be loaded."
+    },
+    "error": {
+      "cannot_connect": "Connection failed. Check the URL, port and network.",
+      "invalid_auth": "The username or password is invalid.",
+      "invalid_characters": "Username and password may only contain Latin-1 characters.",
+      "insecure_connection": "HTTP sends credentials without encryption. Explicitly allow insecure HTTP or use HTTPS.",
+      "invalid_url": "The URL must use http:// or https://.",
+      "wrong_miniserver": "The connection points to a different Miniserver."
+    },
     "step": {
       "init": {
+        "description": "Choose what to configure.",
+        "title": "LOXHome I/O settings",
+        "menu_options": {
+          "entities": "Select imported entities",
+          "connection": "Edit connection"
+        }
+      },
+      "connection": {
         "data": {
           "username": "User",
           "port": "Port",
-          "host": "Miniserver Ip",
+          "host": "Miniserver URL or hostname",
           "password": "Password",
           "verify_ssl": "Verify the Miniserver TLS certificate",
+          "allow_insecure_http": "Explicitly allow insecure HTTP",
           "generate_scenes": "Generate scenes",
           "generate_lightcontroller_subcontrols": "Enable LightControllerV2 subcontrols by default",
           "generate_scenes_delay": "Delay for the scene generation if enabled"
         },
-        "description": "PyLoxone edit settings:",
-        "title": "PyLoxone settings"
+        "description": "Update and validate the Miniserver connection.",
+        "title": "Edit Loxone connection"
+      },
+      "entities": {
+        "title": "Select Loxone entities",
+        "description": "{count} possible entities were found. Changes are applied by reloading the integration after saving.",
+        "data": {
+          "selected_entities": "Entities to import"
+        }
+      },
+      "door_profile": {
+        "title": "Door profile {current} of {total}: {door}",
+        "description": "Optional physical actions for this door. Unmapped actions remain blocked.",
+        "data": {
+          "lock_action": "Lock action",
+          "unlock_action": "Unlock action",
+          "open_action": "Open latch action"
+        }
       }
     }
   },
   "services": {
     "reload": {
-       "name": "Pyloxone Reload",
+       "name": "Reload LOXHome I/O",
             "description": "Reloads the Loxone integration by reconnecting to the Miniserver and refreshing all entities. This is useful after making configuration changes in Loxone Config or when connection issues occur. All current entity states will be re\\-synchronized from the Miniserver."
     },
     "event_websocket_command": {
@@ -50,6 +112,10 @@
         "uuid": {
           "name": "UUID",
           "description": "Uuid for entity which you want to send a command."
+        },
+        "config_entry_id": {
+          "name": "Miniserver configuration",
+          "description": "Loxone config entry ID when no entity is selected."
         },
         "device": {
           "name": "Entity",
@@ -69,6 +135,10 @@
           "name": "UUID",
           "description": "Uuid for entity which you want to send a command."
         },
+        "config_entry_id": {
+          "name": "Miniserver configuration",
+          "description": "Loxone config entry ID when no entity is selected."
+        },
         "device": {
           "name": "Entity",
           "description": "Device which you want to send a command"
@@ -85,11 +155,11 @@
     },
     "sync_areas": {
       "name": "Sync areas",
-      "description": "Applies areas to the loxone entites based on the room from loxone. If area not exists entites will not be changed",
+      "description": "Assigns Loxone entities to Home Assistant areas based on their Loxone rooms.",
       "fields": {
         "create_areas": {
           "name": "Create areas",
-          "description": "Force to create areas when they not exist in HA"
+          "description": "Automatically creates missing Home Assistant areas."
         }
       }
     },

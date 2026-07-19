@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from custom_components.loxone import async_migrate_entry
 from custom_components.loxone.const import (
+    CONF_ALLOW_INSECURE_HTTP,
     CONF_LIGHTCONTROLLER_SUBCONTROLS_GEN,
     CONF_SCENE_GEN_DELAY,
     DEFAULT_DELAY_SCENE,
@@ -30,17 +31,44 @@ def test_version_one_migrates_through_all_versions_in_one_update() -> None:
 
     assert asyncio.run(async_migrate_entry(hass, entry)) is True
 
-    assert entry.version == 3
+    assert entry.version == 5
     assert entry.options[CONF_LIGHTCONTROLLER_SUBCONTROLS_GEN] is True
     assert entry.options[CONF_SCENE_GEN_DELAY] == DEFAULT_DELAY_SCENE
+    assert entry.options[CONF_ALLOW_INSECURE_HTTP] is True
     assert len(config_entries.calls) == 1
 
 
 def test_current_version_does_not_update_entry() -> None:
     config_entries = _ConfigEntries()
     hass = SimpleNamespace(config_entries=config_entries)
-    entry = SimpleNamespace(version=3, options={})
+    entry = SimpleNamespace(
+        version=5, options={CONF_ALLOW_INSECURE_HTTP: False}
+    )
 
     assert asyncio.run(async_migrate_entry(hass, entry)) is True
 
     assert config_entries.calls == []
+
+
+def test_version_three_keeps_legacy_import_all_mode() -> None:
+    config_entries = _ConfigEntries()
+    hass = SimpleNamespace(config_entries=config_entries)
+    entry = SimpleNamespace(version=3, options={"host": "miniserver.local"})
+
+    assert asyncio.run(async_migrate_entry(hass, entry)) is True
+
+    assert entry.version == 5
+    assert "selected_entities" not in entry.options
+    assert entry.options[CONF_ALLOW_INSECURE_HTTP] is True
+    assert len(config_entries.calls) == 1
+
+
+def test_version_four_adds_explicit_legacy_http_opt_in() -> None:
+    config_entries = _ConfigEntries()
+    hass = SimpleNamespace(config_entries=config_entries)
+    entry = SimpleNamespace(version=4, options={"host": "miniserver.local"})
+
+    assert asyncio.run(async_migrate_entry(hass, entry)) is True
+
+    assert entry.version == 5
+    assert entry.options[CONF_ALLOW_INSECURE_HTTP] is True

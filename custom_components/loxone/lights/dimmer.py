@@ -3,10 +3,8 @@ from functools import cached_property
 from homeassistant.components.light import (ATTR_BRIGHTNESS, ColorMode,
                                             LightEntity)
 from homeassistant.const import STATE_UNKNOWN
-from homeassistant.helpers.entity import DeviceInfo
 
 from .. import LoxoneEntity
-from ..const import DOMAIN, SENDDOMAIN
 from ..helpers import (get_or_create_device, hass_to_lox, lox2hass_mapped,
                        lox_to_hass)
 
@@ -66,19 +64,16 @@ class LoxoneDimmer(LoxoneEntity, LightEntity):
 
     async def async_turn_on(self, **kwargs) -> None:
         if ATTR_BRIGHTNESS in kwargs:
-            self.hass.bus.async_fire(
-                SENDDOMAIN,
-                dict(
-                    uuid=self.uuidAction,
-                    value=round(hass_to_lox(kwargs[ATTR_BRIGHTNESS])),
-                ),
+            await self.async_send_command(
+                self.uuidAction,
+                round(hass_to_lox(kwargs[ATTR_BRIGHTNESS])),
             )
         else:
-            self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="On"))
+            await self.async_send_command(self.uuidAction, "On")
         self.async_schedule_update_ha_state()
 
     async def async_turn_off(self, **kwargs) -> None:
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="Off"))
+        await self.async_send_command(self.uuidAction, "Off")
         self.async_schedule_update_ha_state()
 
     async def event_handler(self, e):

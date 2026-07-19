@@ -1,15 +1,14 @@
-# PyLoxone
+<p align="center">
+  <img src="images/LOXHome.svg" alt="LOXHome I/O" width="260">
+</p>
+
+<h1 align="center">LOXHome I/O</h1>
+
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
 
-If you want to support my work on this binding you can buy me a coffee:
+Selective, local-push Home Assistant integration for Loxone Miniservers.
 
-<a href="https://www.buymeacoffee.com/JoDehli" target="_blank"><img src="https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png" alt="Buy Me A Coffee" style="height: 41px !important;width: 174px !important;box-shadow: 0px 3px 2px 0px rgba(190, 190, 190, 0.5) !important;-webkit-box-shadow: 0px 3px 2px 0px rgba(190, 190, 190, 0.5) !important;" ></a>
-
-
-Home Assistant binding for Loxone. 
-
-A special thanks to Pawel Pieczul from the great openhab2 house automation software. 
-He really helped me a lot to with the new token based authentication. Thanks Pawel!!!
+LOXHome I/O is based on the open-source [PyLoxone](https://github.com/JoDehli/PyLoxone) integration by JoDehli and its contributors. The original token authentication work also benefited from Pawel Pieczul's openHAB implementation.
 
 #### This release works for the version 2024.1.0 and newer!!
 
@@ -30,16 +29,16 @@ Change 123456789ABC to your miniserver Serial Number.
 1. Download the zip file and extract all files.
 2. Copy the ***custom_components*** folder in the same folder where your configuration.yaml is located
 3. Restart Home-Assistant
-4. Go to Configuration -> Integrations and search for Pyloxone
+4. Go to Configuration -> Integrations and search for LOXHome I/O
 5. Add the Integration and fill out all required fields
 6. Restart Home-Assistant
 
 ## Hacs installation
 1. Install hacs to your homeassistant installation. See https://hacs.xyz/docs/use/download/download/
-2. Add this repository to hacs: https://github.com/JoDehli/PyLoxone
-3. Install the PyLoxone binding 
+2. Add this repository to HACS: https://github.com/SVENS0Nb/LOXHome-IO
+3. Install LOXHome I/O
 4. Restart Home-Assistant
-5. Go to Configuration -> Integrations and search for Pyloxone
+5. Go to Configuration -> Integrations and search for LOXHome I/O
 6. Add the Integration and fill out all required fields
 7. Restart Home-Assistant
 
@@ -59,6 +58,41 @@ If you encounter a Loxone entity that is currently not supported, you can post a
 - Slider
 - TextInput
 - Radio Buttons
+- Sauna (climate, temperature, humidity, mode, fan, timer and status sensors)
+- WindowMonitor doors as `lock` entities
+- NFC Code Touch access outputs as buttons and optional door actions
+
+## Selective entity import
+
+New installations first validate the Miniserver URL, port and Loxone user credentials and then read the structure visible to that user. The next setup page lists every supported Home Assistant entity with its room, category, platform and Loxone source type. Nothing is imported until it is explicitly selected.
+
+The selection can be changed later under **Settings → Devices & services → LOXHome I/O → Configure → Imported entities**. Saving the options reloads the integration automatically. Existing config entries retain their historic sensor and control imports, but newly added door, NFC access and Sauna actions remain disabled until they are explicitly selected.
+
+Complex controls are split into independently selectable entities, including LightController sub-controls, individual Meter values, Ventilation sensors, Intercom outputs and every Sauna capability.
+
+## Door locks and access outputs
+
+Entries from a Loxone `WindowMonitor` can be selected as Home Assistant `lock` entities. The state is derived from the documented `windowStates` bitmask (`closed`, `open`, `tilted`, `locked`, `unlocked`). A plain closed state is deliberately not treated as locked.
+
+For each selected door the setup flow offers optional **lock**, **unlock** and **open latch** actions. These actions can be mapped to visible Pushbutton, Switch, TimedSwitch or NFC Code Touch access outputs. Commands are never guessed: if an action is not mapped, its Home Assistant service call is blocked with an error.
+
+Only map a command after verifying its physical effect in Loxone. For access control, use a dedicated Loxone user with the minimum required permissions and prefer a local HTTPS connection.
+
+Plain HTTP sends the initial Loxone credentials without transport encryption. New configurations therefore require an explicit **Allow insecure HTTP** opt-in when HTTPS is unavailable. Raw UUID command services are restricted to Home Assistant administrators and require the exact Miniserver config entry; normal entities always send through their own Miniserver connection.
+
+## Sauna controls
+
+The Loxone `Sauna` function block can expose the following entities independently:
+
+- climate control with on/off and target temperature
+- current and bench temperature
+- current and target humidity when a vaporizer is configured
+- operating mode, fan and sand timer
+- heating, drying, door, presence, fault and low-water states when available
+
+Commands and state names follow the official Loxone Structure File API. Safety shutdowns remain controlled by the Miniserver and the Sauna function block.
+
+Automatically generated LightController scenes are disabled by default. Enabling scene generation is an explicit all-scenes opt-in because mood lists are supplied dynamically after the connection starts and cannot be selected individually during the initial structure-file import.
 
 ## Known Limitations
 
@@ -136,12 +170,13 @@ recorder:
 If you want to send data directly to Loxone inputs or blocks that are not (yet) supported, you can use this service to send a command:
 
 ```yaml
-{
-"uuid":"0f1e0b31-0179-7f77-ffff403fb0c34b9e",
-"value":"pulse"
-}
+action: loxone.event_websocket_command
+data:
+  config_entry_id: 01JEXAMPLECONFIGENTRY
+  uuid: 0f1e0b31-0179-7f77-ffff403fb0c34b9e
+  value: pulse
 ```
-You can choose to send the commands using the UUID or the entity-name. See Developer Tools -> Services for more details.
+Alternatively, select a Loxone entity instead of entering `config_entry_id` and `uuid`. These raw command services are administrator-only. See **Developer Tools → Actions** for the available fields.
 Websocket direct commands enable you to, for example, send data captured by devices integrated in Home Assistant immediately to the miniserver using a VI on the miniserver.
 
 ## Some examples
@@ -194,7 +229,7 @@ sensor:
     device_class: "temperature"    # Use device classes from homeassitant for example temperature, humidity, voltage   
     state_class: "total"           # measurement, total or total_increasing see https://developers.home-assistant.io/docs/core/entity/sensor/#long-term-statistics
 ```
-In this example a sensor with the name roomcomforttemperature (sensor.roomcomforttemperature) is created. The sensor is listening to all events from the loxone system with the specified uuid ([How do you get the uuid?](https://github.com/JoDehli/PyLoxone?tab=readme-ov-file#how-do-you-get-the-uuid)).
+In this example a sensor with the name roomcomforttemperature (sensor.roomcomforttemperature) is created. The sensor is listening to all events from the Loxone system with the specified UUID ([How do you get the UUID?](https://github.com/SVENS0Nb/LOXHome-IO#how-do-you-get-the-uuid)).
 
 You can also send any websocket to a loxone entity for example to increase and decrease the temperature of a room controller v2. Here is a script that raises and lowers the temperature in 0.5 °C steps:
 
@@ -340,8 +375,4 @@ Here is a example of a Room Controller V2:
             }
         },
 ```
-
-
-
-
 
