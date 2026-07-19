@@ -1,16 +1,15 @@
 {
   "domain": "loxone",
-  "name": "PyLoxone",
-  "codeowners": ["@JoDehli"],
+  "name": "LOXHome I/O",
+  "codeowners": ["@SVENS0Nb"],
   "config_flow": true,
   "dependencies": [],
-  "documentation": "https://github.com/JoDehli/PyLoxone",
-  "iot_class": "local_polling",
-  "issue_tracker": "https://github.com/JoDehli/PyLoxone/issues",
+  "documentation": "https://github.com/SVENS0Nb/LOXHome-IO",
+  "iot_class": "local_push",
+  "issue_tracker": "https://github.com/SVENS0Nb/LOXHome-IO/issues",
   "requirements": [
-    "websockets>=14",
-    "pycryptodome",
-    "httpx"
+    "websockets>=14,<17",
+    "pycryptodome>=3.20,<4"
   ],
-  "version": "0.9.18"
+  "version": "0.10.0-beta.1"
 }

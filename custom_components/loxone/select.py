@@ -14,7 +14,12 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
 from . import LoxoneEntity
-from .const import SENDDOMAIN
+from .catalog import (
+    control_is_selected,
+    entity_is_selected,
+    feature_is_enabled,
+    sauna_selection_key,
+)
 from .helpers import add_room_and_cat_to_value_values, get_all, get_or_create_device
 from .miniserver import get_miniserver_from_hass
 
@@ -102,9 +107,33 @@ async def async_setup_entry(
     entities = []
 
     for select_entity in get_all(loxconfig, ["Radio"]):
+        if not control_is_selected(config_entry, select_entity, "select"):
+            continue
         select_entity = add_room_and_cat_to_value_values(loxconfig, select_entity)
         new_select = LoxoneSelect(**select_entity)
         entities.append(new_select)
+
+    from .sauna import LoxoneSaunaModeSelect
+
+    for sauna in get_all(loxconfig, "Sauna"):
+        if (
+            "mode" not in sauna.get("states", {})
+            or not feature_is_enabled(sauna.get("details", {}).get("hasVaporizer"))
+            or not entity_is_selected(
+                config_entry, sauna_selection_key(sauna["uuidAction"], "mode")
+            )
+        ):
+            continue
+        sauna = add_room_and_cat_to_value_values(loxconfig, sauna)
+        sauna.update(
+            {
+                "hass": hass,
+                "config_entry_id": config_entry.entry_id,
+                "gateway_id": config_entry.unique_id or config_entry.entry_id,
+                "temperature_unit": loxconfig.get("msInfo", {}).get("tempUnit", 0),
+            }
+        )
+        entities.append(LoxoneSaunaModeSelect(**sauna))
 
     async_add_entities(entities)
 
@@ -170,9 +199,9 @@ class LoxoneSelect(LoxoneEntity, SelectEntity):
             _LOGGER.warning("Unknown option '%s' for Loxone select %s", option, self.name)
             return
         if number == self._all_off_num:
-            self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="reset"))
+            await self.async_send_command(self.uuidAction, "reset")
         else:
-            self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value=str(number)))
+            await self.async_send_command(self.uuidAction, str(number))
         self.async_schedule_update_ha_state()
 
     @property

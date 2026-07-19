@@ -49,14 +49,6 @@ from .message import (BaseMessage, BinaryFile, Keepalive, LLResponse,
 from .websocket_protocol import LoxoneClientConnection
 
 _LOGGER = logging.getLogger(__name__)
-import warnings
-
-# Filter out the specific warning
-warnings.filterwarnings(
-    "ignore",
-    message="Detected blocking call to load_verify_locations",
-    module="httpx._config",
-)
 
 
 def time_elapsed_in_seconds():
@@ -67,6 +59,15 @@ def time_elapsed_in_seconds():
 class MessageForQueue:
     command: str
     flag: bool
+    future: asyncio.Future[None] | None = None
+
+
+@dataclass
+class SecuredCommand:
+    device_uuid: str
+    value: str | int | float
+    code: str
+    future: asyncio.Future[None]
 
 
 class LoxoneBaseConnection:
@@ -83,6 +84,7 @@ class LoxoneBaseConnection:
         port: int = 8080,
         timeout: Optional[float] = None,
         verify_ssl: bool = True,
+        allow_insecure_http: bool = True,
     ):
         # Validate input parameters
         if not host or not isinstance(host, str):
@@ -109,6 +111,7 @@ class LoxoneBaseConnection:
         self.port = port
         self.timeout = None if timeout == 0 else timeout
         self.verify_ssl = verify_ssl
+        self.allow_insecure_http = allow_insecure_http
         self.connection: wslib.ClientConnection | None = None
         self._pending_task = []
         self._closed = False
@@ -120,22 +123,34 @@ class LoxoneBaseConnection:
         try:
             parsed = urlparse(host if "://" in host else f"//{host}", scheme="")
             self.scheme = parsed.scheme or ("https" if port == 443 else "http")
-            netloc = parsed.hostname or parsed.path
+            hostname = parsed.hostname or parsed.path
 
-            if not netloc:
+            if not hostname:
                 raise ValueError(f"Cannot parse hostname from '{host}'")
+            if self.scheme not in {"http", "https"}:
+                raise ValueError("Host URL must use http:// or https://")
+            if self.scheme == "http" and not allow_insecure_http:
+                raise ValueError(
+                    "Plain HTTP requires the allow_insecure_http option"
+                )
+            netloc = f"[{hostname}]" if ":" in hostname else hostname
         except Exception as e:
             raise ValueError(f"Invalid host format '{host}': {e}") from e
 
         # do not use port 80 or 443 if the scheme is http/ws or https/wss
         default_port = 80 if self.scheme == "http" else 443
-        used_port = port if port and port != default_port else None
+        effective_port = parsed.port or port
+        used_port = (
+            effective_port
+            if effective_port and effective_port != default_port
+            else None
+        )
 
         # Build the full address but without the scheme
         if used_port:
-            self.url = f"{netloc}:{used_port}{parsed.path}"
+            self.url = f"{netloc}:{used_port}{parsed.path.rstrip('/')}"
         else:
-            self.url = f"{netloc}{parsed.path}"
+            self.url = f"{netloc}{parsed.path.rstrip('/')}"
 
         # Generate random 16 byte AES initialisation vector (iv)
         try:
@@ -200,8 +215,29 @@ class LoxoneBaseConnection:
         self._message_queue: asyncio.Queue[MessageForQueue] = asyncio.Queue(
             maxsize=1000
         )
-        self._secured_queue: asyncio.Queue = asyncio.Queue(maxsize=1)
+        self._secured_queue: asyncio.Queue[SecuredCommand] = asyncio.Queue(maxsize=1)
+        self._secured_command_lock = asyncio.Lock()
         self.message_header = None
+
+    def _fail_pending_commands(self, error: Exception) -> None:
+        """Fail queued callers when the connection can no longer send."""
+        while True:
+            try:
+                message = self._message_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            if message.future and not message.future.done():
+                message.future.set_exception(error)
+            self._message_queue.task_done()
+
+        while True:
+            try:
+                secured = self._secured_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+            if not secured.future.done():
+                secured.future.set_exception(error)
+            self._secured_queue.task_done()
 
     def _websocket_ssl_context(self) -> ssl.SSLContext | None:
         """Return an unverified TLS context when explicitly configured."""
@@ -216,11 +252,12 @@ class LoxoneBaseConnection:
     @property
     def is_connected(self) -> bool:
         """Check if the websocket connection is open."""
-        return (
-            self.connection is not None
-            and hasattr(self.connection, "protocol")
-            and self.connection.protocol.state.name == "OPEN"
-        )
+        if self.connection is None:
+            return False
+        state = getattr(self.connection, "state", None)
+        if state is None and hasattr(self.connection, "protocol"):
+            state = getattr(self.connection.protocol, "state", None)
+        return getattr(state, "name", None) == "OPEN"
 
     def get_token_dict(self) -> dict:
         try:
@@ -254,7 +291,9 @@ class LoxoneBaseConnection:
         some commands (to do with tokens) still seem to need it.
 
         """
-        _LOGGER.debug(f"Send text command: {command}")
+        _LOGGER.debug(
+            "Sending %s Loxone command", "encrypted" if encrypted else "plain"
+        )
         if encrypted:
             if self._new_salt_needed():
                 old_salt = self._salt
@@ -272,15 +311,17 @@ class LoxoneBaseConnection:
         try:
             # Check if connection is open before sending
             if not self.connection or not self.is_connected:
-                _LOGGER.warning("Cannot send command - connection is not open")
+                raise LoxoneConnectionError(
+                    "Cannot send command because the connection is not open"
+                )
             await self.connection.send([command])
         except websockets.ConnectionClosedOK:
             raise LoxoneConnectionClosedOk(
                 "Connection closed normally while sending command"
             )
         except Exception as e:
-            _LOGGER.error("Error while sending...", e)
-            raise e
+            _LOGGER.error("Error while sending: %s", e)
+            raise
 
     def _decrypt(self, command: str) -> bytes:
         """AES decrypt a command returned by the miniserver."""
@@ -382,7 +423,13 @@ class LoxoneBaseConnection:
             _LOGGER.error(f"Token hashing error: {e}")
             return None
 
-    async def _send_secure(self, device_uuid, value, code):
+    async def _send_secure(
+        self,
+        device_uuid: str,
+        value: str | int | float,
+        code: str,
+        future: asyncio.Future[None],
+    ) -> None:
         pwd_hash_str = code + ":" + self._visual_hash.salt
         if self._visual_hash.hash_alg == "SHA1":
             m = hashlib.sha1()
@@ -391,10 +438,9 @@ class LoxoneBaseConnection:
             m = hashlib.sha256()
             hash_module = SHA256
         else:
-            _LOGGER.error(
-                "Unrecognised hash algorithm: {}".format(self._visual_hash.hash_alg)
+            raise ValueError(
+                f"Unrecognised visual hash algorithm: {self._visual_hash.hash_alg}"
             )
-            return None
 
         m.update(pwd_hash_str.encode("utf-8"))
         pwd_hash = m.hexdigest().upper()
@@ -407,7 +453,7 @@ class LoxoneBaseConnection:
         command = "jdev/sps/ios/{}/{}/{}".format(new_hash, device_uuid, str(value))
         # Fix: Use await with put() and timeout for critical secure commands
         try:
-            await self._message_queue.put(MessageForQueue(command, True))
+            await self._message_queue.put(MessageForQueue(command, True, future))
         except asyncio.TimeoutError:
             _LOGGER.error(f"Timeout queueing secure command for {device_uuid}")
             raise
@@ -531,10 +577,7 @@ class LoxoneConnection(LoxoneBaseConnection):
                         )
 
                         try:
-                            _ = asyncio.create_task(
-                                self._send_text_command(command, encrypted=False)
-                            )
-                            await asyncio.sleep(0)
+                            await self._send_text_command(command, encrypted=False)
                         except Exception as exc:
                             _LOGGER.error(f"Error requesting new key: {exc}")
                             self._key_update_event = None
@@ -554,7 +597,7 @@ class LoxoneConnection(LoxoneBaseConnection):
                                 continue
                             else:
                                 _LOGGER.debug("Key changed successfully.")
-                                _ = asyncio.create_task(self._refresh_token())
+                                await self._refresh_token()
                         except asyncio.TimeoutError:
                             _LOGGER.warning(
                                 "Timed out waiting for new key (15s). Will retry on next cycle."
@@ -603,6 +646,9 @@ class LoxoneConnection(LoxoneBaseConnection):
                         for p in (t_shutdown, t_reconnect):
                             if not p.done():
                                 p.cancel()
+                        await asyncio.gather(
+                            t_shutdown, t_reconnect, return_exceptions=True
+                        )
 
                     # Shutdown requested -> exit cleanly
                     if self._shutdown_event.is_set():
@@ -644,7 +690,7 @@ class LoxoneConnection(LoxoneBaseConnection):
                 except websockets.exceptions.ConnectionClosedError as e:
                     _LOGGER.error(f"Connection closed with error: {e}")
                     raise LoxoneConnectionError
-                except websockets.exceptions.ConnectionClosed as e:
+                except websockets.exceptions.ConnectionClosed:
                     _LOGGER.error(
                         "Connection closed by websocket, converting to LoxoneConnectionError"
                     )
@@ -672,63 +718,48 @@ class LoxoneConnection(LoxoneBaseConnection):
 
             if self._pending_task:
                 await asyncio.gather(*self._pending_task, return_exceptions=True)
+            self._fail_pending_commands(
+                LoxoneConnectionError("The Loxone connection stopped")
+            )
 
     async def _process_message(self) -> NoReturn:
         """Process queued messages with graceful shutdown."""
         _LOGGER.debug("Message processing task started")
 
         try:
-            while not self._shutdown_event.is_set():
+            while not self._shutdown_event.is_set() or not self._message_queue.empty():
                 try:
-                    # Use asyncio.Queue.get() with timeout
-                    msg = await self._message_queue.get()
-                    await asyncio.sleep(0)
-                    try:
-                        _ = asyncio.create_task(
-                            self._send_text_command(msg.command, encrypted=msg.flag)
-                        )
-                        await asyncio.sleep(0)
-                    except Exception as e:
-                        _LOGGER.error(f"Error sending message: {e}")
-                    finally:
-                        # Mark task as done for queue.join()
-                        self._message_queue.task_done()
+                    msg = await asyncio.wait_for(
+                        self._message_queue.get(), timeout=0.25
+                    )
                 except asyncio.TimeoutError:
-                    # Normal timeout, continue to check shutdown event
                     continue
                 except asyncio.CancelledError:
                     raise
+
+                try:
+                    if msg.future and msg.future.cancelled():
+                        continue
+                    await self._send_text_command(msg.command, encrypted=msg.flag)
+                    if msg.future and not msg.future.done():
+                        msg.future.set_result(None)
                 except Exception as e:
-                    _LOGGER.error(f"Error in message processing loop: {e}")
-                    await asyncio.sleep(0.1)  # Avoid tight loop on errors
+                    if msg.future and not msg.future.done():
+                        msg.future.set_exception(e)
+                    else:
+                        _LOGGER.error("Error sending message: %s", e)
+                    raise
+                finally:
+                    self._message_queue.task_done()
 
         except asyncio.CancelledError:
             _LOGGER.debug(
                 "Message processing task cancelled - processing remaining messages"
             )
 
-            # Process any remaining messages before shutdown
-            remaining_count = 0
-            while not self._message_queue.empty():
-                try:
-                    msg = self._message_queue.get_nowait()
-                    remaining_count += 1
-                    try:
-                        await self._send_text_command(msg.command, encrypted=msg.flag)
-                    except Exception as e:
-                        _LOGGER.error(f"Error processing final message: {e}")
-                    finally:
-                        self._message_queue.task_done()
-                except asyncio.QueueEmpty:
-                    break
-                except Exception as e:
-                    _LOGGER.error(f"Error draining message queue: {e}")
-
-            if remaining_count > 0:
-                _LOGGER.debug(
-                    f"Processed {remaining_count} remaining messages during shutdown"
-                )
-
+            self._fail_pending_commands(
+                LoxoneConnectionError("The Loxone connection is closing")
+            )
             raise
         except Exception as e:
             _LOGGER.error(f"Message processing task failed: {e}")
@@ -770,7 +801,7 @@ class LoxoneConnection(LoxoneBaseConnection):
                     if last_header.message_type == MessageType.OUT_OF_SERVICE:
                         raise LoxoneOutOfServiceException
                     if last_header.message_type == MessageType.KEEPALIVE:
-                        asyncio.create_task(_run_callback(Keepalive("")))
+                        await _run_callback(Keepalive(""))
 
                 elif last_header and last_header.payload_length == message_length:
                     msg_type = last_header.message_type
@@ -781,13 +812,15 @@ class LoxoneConnection(LoxoneBaseConnection):
                     parsed_message = parse_message(message, msg_type)
 
                     # Fire internal event processing
-                    asyncio.create_task(self._websocket_event(parsed_message))
+                    await self._websocket_event(parsed_message)
 
                     # Fire external callback if type matches
                     if callback and msg_type in callback_types:
-                        asyncio.create_task(_run_callback(parsed_message))
+                        await _run_callback(parsed_message)
                 else:
-                    _LOGGER.error(f"Message not handled: {message}")
+                    _LOGGER.error(
+                        "Unhandled Loxone message (%s bytes)", message_length
+                    )
         except asyncio.CancelledError:
             _LOGGER.debug("Listening task cancelled")
             raise
@@ -833,24 +866,6 @@ class LoxoneConnection(LoxoneBaseConnection):
                         await asyncio.sleep(RECONNECT_DELAY)
                     else:
                         _LOGGER.exception("Max connection tries exceeded. Stopping.")
-                        raise
-                except TimeoutError:
-                    if attempt < RECONNECT_TRIES - 1:
-                        _LOGGER.debug(
-                            f"TimeoutError, try again in {RECONNECT_DELAY} seconds..."
-                        )
-                        await asyncio.sleep(RECONNECT_DELAY)
-                    else:
-                        _LOGGER.error("Max tries exceeded. Stopping.")
-                        raise
-                except ConnectionError:
-                    if attempt < RECONNECT_TRIES - 1:
-                        _LOGGER.debug(
-                            f"ConnectionError, try again in {RECONNECT_DELAY} seconds..."
-                        )
-                        await asyncio.sleep(RECONNECT_DELAY)
-                    else:
-                        _LOGGER.error("Max tries exceeded. Stopping.")
                         raise
             try:
                 if api_resp:
@@ -963,7 +978,7 @@ class LoxoneConnection(LoxoneBaseConnection):
             _LOGGER.error(f"Failed to initialize connection: {e}", exc_info=True)
             raise
         finally:
-            # Async httpx client must always be closed
+            # A locally created aiohttp session must always be closed.
             if session is None and connector:
                 try:
                     await connector.session.close()
@@ -1072,6 +1087,11 @@ class LoxoneConnection(LoxoneBaseConnection):
         # Signal shutdown to all tasks
         self._shutdown_event.set()
 
+        if not self._pending_task or all(task.done() for task in self._pending_task):
+            self._fail_pending_commands(
+                LoxoneConnectionError("The Loxone connection is closed")
+            )
+
         # Wait for message queue to drain (with timeout)
         if self._message_queue:
             queue_size = self._message_queue.qsize()
@@ -1130,29 +1150,39 @@ class LoxoneConnection(LoxoneBaseConnection):
 
         if not device_uuid or not isinstance(device_uuid, str):
             raise ValueError("device_uuid must be a non-empty string")
-
-        # if value is None or not isinstance(value, (str, int, float)):
-        #    raise ValueError("value must be a string, int, or float")
+        if value is None or not isinstance(value, (str, int, float)):
+            raise ValueError("value must be a string, int, or float")
+        if self._closed or self._shutdown_event.is_set() or not self.is_connected:
+            raise LoxoneConnectionError("The Loxone connection is not open")
 
         try:
             command = "jdev/sps/io/{}/{}".format(device_uuid, str(value))
-            _LOGGER.debug("Call send_websocket_command: {}".format(command))
+            _LOGGER.debug("Queueing Loxone command for UUID %s", device_uuid)
 
             try:
                 # Use put_nowait with QueueFull exception handling for backpressure
+                future = asyncio.get_running_loop().create_future()
                 self._message_queue.put_nowait(
-                    MessageForQueue(command=command, flag=True)
+                    MessageForQueue(command=command, flag=True, future=future)
                 )
             except asyncio.QueueFull:
                 _LOGGER.error(
                     f"Message queue full (size: {self._message_queue.maxsize}), dropping command for {device_uuid}"
                 )
                 raise RuntimeError("Message queue is full, cannot send command")
+            await asyncio.wait_for(future, timeout=self.timeout or TIMEOUT)
         except Exception as e:
             _LOGGER.error(f"Failed to send websocket command: {e}")
             raise
 
     async def send_secured__websocket_command(
+        self, device_uuid: str, value: Union[str, int, float], code: str
+    ) -> None:
+        """Serialize secured commands and wait until the encrypted command is sent."""
+        async with self._secured_command_lock:
+            await self._send_secured_websocket_command(device_uuid, value, code)
+
+    async def _send_secured_websocket_command(
         self, device_uuid: str, value: Union[str, int, float], code: str
     ):
         if not device_uuid or not isinstance(device_uuid, str):
@@ -1161,22 +1191,52 @@ class LoxoneConnection(LoxoneBaseConnection):
             raise ValueError("value must be a string, int, or float")
         if not code or not isinstance(code, str):
             raise ValueError("code must be a non-empty string")
+        if self._closed or self._shutdown_event.is_set() or not self.is_connected:
+            raise LoxoneConnectionError("The Loxone connection is not open")
 
         try:
             command = f"{CMD_GET_VISUAL_PASSWD}{self.username}"
-            _LOGGER.debug(f"Call send_secured__websocket_command: {command}")
+            _LOGGER.debug("Queueing secured Loxone command for UUID %s", device_uuid)
 
+            secured_enqueued = False
             try:
-                # Use put_nowait with QueueFull exception handling
+                future = asyncio.get_running_loop().create_future()
                 self._secured_queue.put_nowait(
-                    self._send_secure(device_uuid, value, code)
+                    SecuredCommand(device_uuid, value, code, future)
                 )
+                secured_enqueued = True
                 self._message_queue.put_nowait(
                     MessageForQueue(command=command, flag=True)
                 )
             except asyncio.QueueFull:
+                if "future" in locals() and not future.done():
+                    future.cancel()
+                if secured_enqueued:
+                    try:
+                        queued = self._secured_queue.get_nowait()
+                        self._secured_queue.task_done()
+                        if not queued.future.done():
+                            queued.future.cancel()
+                    except asyncio.QueueEmpty:
+                        pass
                 _LOGGER.error("Queue is full, dropping secured command")
                 raise RuntimeError("Queue is full, cannot send secured command")
+            try:
+                await asyncio.wait_for(future, timeout=self.timeout or TIMEOUT)
+            finally:
+                if future.cancelled() and secured_enqueued:
+                    try:
+                        queued = self._secured_queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        pass
+                    else:
+                        self._secured_queue.task_done()
+                        if queued.future is not future and not queued.future.done():
+                            queued.future.set_exception(
+                                LoxoneConnectionError(
+                                    "Secured command queue became inconsistent"
+                                )
+                            )
         except Exception as e:
             _LOGGER.error(f"Failed to send secured websocket command: {e}")
             raise
@@ -1324,15 +1384,25 @@ class LoxoneConnection(LoxoneBaseConnection):
                     self._visual_hash = key_and_salt
 
                     while not self._secured_queue.empty():
+                        secured = None
                         try:
-                            awaitable = self._secured_queue.get_nowait()
-                            if awaitable:
-                                await awaitable
-                            self._secured_queue.task_done()
+                            secured = self._secured_queue.get_nowait()
+                            if not secured.future.cancelled():
+                                await self._send_secure(
+                                    secured.device_uuid,
+                                    secured.value,
+                                    secured.code,
+                                    secured.future,
+                                )
                         except asyncio.QueueEmpty:
                             break
                         except Exception as e:
+                            if secured and not secured.future.done():
+                                secured.future.set_exception(e)
                             _LOGGER.error(f"Error processing secured queue item: {e}")
+                        finally:
+                            if secured is not None:
+                                self._secured_queue.task_done()
 
                 except Exception as e:
                     _LOGGER.error(f"Error processing visual salt: {e}")
@@ -1418,17 +1488,9 @@ class LoxoneConnection(LoxoneBaseConnection):
                     )
 
                 except KeyError as e:
-                    _LOGGER.error(
-                        f"Missing key in token refresh response: {e}. "
-                        f"Response: {mess_obj.value_as_dict}, "
-                        f"Message type: {type(mess_obj)}, "
-                        f"Message: {getattr(mess_obj, 'message', 'N/A')}"
-                    )
+                    _LOGGER.error("Missing key in token refresh response: %s", e)
                 except Exception as e:
-                    _LOGGER.error(
-                        f"Unexpected error processing token refresh: {e}. "
-                        f"Response: {getattr(mess_obj, 'value_as_dict', 'N/A')}"
-                    )
+                    _LOGGER.error("Unexpected error processing token refresh: %s", e)
             # Handle binary file
             elif isinstance(mess_obj, BinaryFile):
                 pass

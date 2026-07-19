@@ -24,6 +24,8 @@ LOXONE_PLATFORMS: Final[list[Platform]] = [
     Platform.BUTTON,
     Platform.SCENE,
     Platform.SELECT,
+    Platform.TEXT,
+    Platform.LOCK,
 ]
 
 LOXONE_DEFAULT_PORT = 8080
@@ -31,6 +33,7 @@ LOXONE_DEFAULT_PORT = 8080
 ERROR_VALUE = -1
 DEFAULT_PORT = 8080
 DEFAULT_VERIFY_SSL = True
+DEFAULT_ALLOW_INSECURE_HTTP = False
 DEFAULT_DELAY_SCENE = 3
 DEFAULT_IP = ""
 
@@ -49,6 +52,7 @@ ATTR_CODE = "code"
 ATTR_COMMAND = "command"
 ATTR_DEVICE = "device"
 ATTR_AREA_CREATE = "create_areas"
+ATTR_CONFIG_ENTRY_ID = "config_entry_id"
 DOMAIN_DEVICES = "devices"
 
 CONF_ACTIONID = "uuidAction"
@@ -56,6 +60,9 @@ CONF_SCENE_GEN = "generate_scenes"
 CONF_SCENE_GEN_DELAY = "generate_scenes_delay"
 CONF_LIGHTCONTROLLER_SUBCONTROLS_GEN = "generate_lightcontroller_subcontrols"
 CONF_VERIFY_SSL = "verify_ssl"
+CONF_ALLOW_INSECURE_HTTP = "allow_insecure_http"
+CONF_SELECTED_ENTITIES = "selected_entities"
+CONF_DOOR_PROFILES = "door_profiles"
 DEFAULT_FORCE_UPDATE = False
 
 SUPPORT_SUN_AUTOMATION = 1024

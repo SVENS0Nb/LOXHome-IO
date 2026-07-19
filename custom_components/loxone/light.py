@@ -6,6 +6,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType
 
+from .catalog import (
+    control_is_selected,
+    entity_is_selected,
+    subcontrol_selection_key,
+)
+from .const import CONF_SELECTED_ENTITIES
 from .helpers import add_room_and_cat_to_value_values, get_all
 from .lights.colorpickers import LumiTech, RGBColorPicker, TunableWhiteLight
 from .lights.dimmer import EIBDimmer, LoxoneDimmer
@@ -60,21 +66,27 @@ async def async_setup_entry(
     )
     loxconfig = miniserver.lox_config.json
     entities = []
-    dimmers_without_light_controller = get_all(loxconfig, ["Dimmer", "EIBDimmer"])
+    dimmers_without_light_controller = [
+        dimmer
+        for dimmer in get_all(loxconfig, ["Dimmer", "EIBDimmer"])
+        if control_is_selected(config_entry, dimmer, "light")
+    ]
 
     switches = []
     dimmers = []
     color_pickers = []
 
     for light_controller in get_all(loxconfig, "LightControllerV2"):
+        main_selected = control_is_selected(config_entry, light_controller, "light")
         light_controller = add_room_and_cat_to_value_values(loxconfig, light_controller)
         light_controller.update(
             {
                 "async_add_devices": async_add_entities,
             }
         )
-        new_light_controller = LoxoneLightControllerV2(**light_controller)
-        entities.append(new_light_controller)
+        if main_selected:
+            new_light_controller = LoxoneLightControllerV2(**light_controller)
+            entities.append(new_light_controller)
 
         if "subControls" in light_controller:
             for sub_control_uuid in light_controller["subControls"]:
@@ -84,6 +96,11 @@ async def async_setup_entry(
                 ):
                     continue
                 sub_control = light_controller["subControls"][sub_control_uuid]
+                sub_uuid = str(sub_control.get("uuidAction") or sub_control_uuid)
+                if not entity_is_selected(
+                    config_entry, subcontrol_selection_key(sub_uuid, "light")
+                ):
+                    continue
                 # Update for all entities
                 sub_control = add_room_and_cat_to_value_values(loxconfig, sub_control)
                 sub_control.update(
@@ -91,7 +108,8 @@ async def async_setup_entry(
                         "lightcontroller_id": light_controller.get("uuidAction", None),
                         "lightcontroller_name": light_controller.get("name", None),
                         "async_add_devices": async_add_entities,
-                        "enabled_default": generate_subcontrols,
+                        "enabled_default": generate_subcontrols
+                        or CONF_SELECTED_ENTITIES in config_entry.options,
                     }
                 )
 

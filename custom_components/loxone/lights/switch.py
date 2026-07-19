@@ -3,10 +3,8 @@ from typing import Any
 
 from homeassistant.components.light import ColorMode, LightEntity
 from homeassistant.const import STATE_UNKNOWN
-from homeassistant.helpers.entity import DeviceInfo, ToggleEntity
 
 from .. import LoxoneEntity
-from ..const import DOMAIN, SENDDOMAIN
 from ..helpers import get_or_create_device
 
 
@@ -58,11 +56,11 @@ class LoxoneLightSwitch(LoxoneEntity, LightEntity):
         return self._attr_unique_id
 
     async def async_turn_on(self, **kwargs: Any) -> None:
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="on"))
+        await self.async_send_command(self.uuidAction, "on")
         self.async_schedule_update_ha_state()
 
     async def async_turn_off(self, **kwargs: Any) -> None:
-        self.hass.bus.async_fire(SENDDOMAIN, dict(uuid=self.uuidAction, value="off"))
+        await self.async_send_command(self.uuidAction, "off")
         self.async_schedule_update_ha_state()
 
     async def event_handler(self, event):
