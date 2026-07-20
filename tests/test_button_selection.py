@@ -70,3 +70,7 @@ def test_pushbutton_and_nfc_output_are_created_together(monkeypatch) -> None:
         "Door 2 Door 2 Aktor 2",
     ]
     assert created[1].unique_id == "gateway-id-nfc-uuid-output-2"
+    assert created[1].device_info["name"] == "Door 2"
+    assert created[1].device_info["identifiers"] == {
+        ("loxone", "gateway-id-nfc-uuid")
+    }

@@ -25,7 +25,11 @@ from .catalog import (
     sauna_selection_key,
 )
 from .const import DOMAIN
-from .helpers import add_room_and_cat_to_value_values, get_all
+from .helpers import (
+    add_room_and_cat_to_value_values,
+    get_all,
+    get_or_create_device,
+)
 from .miniserver import get_miniserver_from_hass
 
 _LOGGER = logging.getLogger(__name__)
@@ -81,6 +85,7 @@ async def async_setup_entry(
                 LoxoneActionButton(
                     **action_entity,
                     command=command,
+                    device_name=action_control["name"],
                 )
             )
 
@@ -108,10 +113,16 @@ async def async_setup_entry(
 class LoxoneActionButton(LoxoneEntity, ButtonEntity):
     """A named Loxone command exposed as a Home Assistant button."""
 
-    def __init__(self, *, command: str, **kwargs) -> None:
+    def __init__(self, *, command: str, device_name: str, **kwargs) -> None:
         super().__init__(**kwargs)
         self._command = command
         self._source_uuid = self.uuidAction
+        self._attr_device_info = get_or_create_device(
+            f"{self._gateway_id}-{self._source_uuid}",
+            device_name,
+            self.type,
+            self.room,
+        )
 
     @property
     def unique_id(self) -> str:
