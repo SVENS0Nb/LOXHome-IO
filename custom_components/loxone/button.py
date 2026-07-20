@@ -73,10 +73,13 @@ async def async_setup_entry(
                 action_selection_key(action_control["uuidAction"], command),
             ):
                 continue
+            action_entity = {
+                **action_control,
+                "name": f"{action_control['name']} {output_name}",
+            }
             entities.append(
                 LoxoneActionButton(
-                    **action_control,
-                    name=f"{action_control['name']} {output_name}",
+                    **action_entity,
                     command=command,
                 )
             )

@@ -3,5 +3,5 @@
     "country": "DE",
     "hacs": "2.0.5",
     "render_readme": true,
-    "homeassistant": "2025.2.4"
+    "homeassistant": "2026.3.0"
 }

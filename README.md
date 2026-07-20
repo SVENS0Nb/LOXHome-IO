@@ -10,7 +10,9 @@ Selective, local-push Home Assistant integration for Loxone Miniservers.
 
 LOXHome I/O is based on the open-source [PyLoxone](https://github.com/JoDehli/PyLoxone) integration by JoDehli and its contributors. The original token authentication work also benefited from Pawel Pieczul's openHAB implementation.
 
-#### This release works for the version 2024.1.0 and newer!!
+#### Requires Home Assistant 2026.3.0 or newer
+
+Home Assistant 2026.3 introduced local brand images for custom integrations. LOXHome I/O includes its own local icon so Home Assistant does not fall back to the central Loxone brand image.
 
 
 ## Config for the gen2 miniserver
@@ -375,4 +377,3 @@ Here is a example of a Room Controller V2:
             }
         },
 ```
-
