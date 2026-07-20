@@ -239,10 +239,16 @@ class LoxoneBaseConnection:
                 secured.future.set_exception(error)
             self._secured_queue.task_done()
 
-    def _websocket_ssl_context(self) -> ssl.SSLContext | None:
-        """Return an unverified TLS context when explicitly configured."""
-        if self.scheme != "https" or self.verify_ssl:
+    async def _async_websocket_ssl_context(self) -> ssl.SSLContext | None:
+        """Build the WebSocket TLS context without blocking the event loop."""
+        if self.scheme != "https":
             return None
+
+        if self.verify_ssl:
+            # Loading the operating system CA store performs blocking disk I/O.
+            # websockets otherwise creates this context inside connect(), which
+            # blocks Home Assistant's event loop and triggers a repair warning.
+            return await asyncio.to_thread(ssl.create_default_context)
 
         ssl_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
         ssl_context.check_hostname = False
@@ -1046,7 +1052,7 @@ class LoxoneConnection(LoxoneBaseConnection):
                     "compression": None,
                     "max_size": MAX_WEBSOCKET_MESSAGE_SIZE,
                 }
-                if ssl_context := self._websocket_ssl_context():
+                if ssl_context := await self._async_websocket_ssl_context():
                     websocket_options["ssl"] = ssl_context
 
                 connection = await asyncio.wait_for(

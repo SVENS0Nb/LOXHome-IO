@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import ssl
+import threading
 
 from custom_components.loxone.pyloxone_api.connection import LoxoneConnection
 from custom_components.loxone.pyloxone_api.loxone_http_client import (
@@ -70,14 +71,21 @@ def test_websocket_uses_unverified_context_only_when_requested() -> None:
         verify_ssl=False,
     )
 
-    ssl_context = connection._websocket_ssl_context()
+    ssl_context = asyncio.run(connection._async_websocket_ssl_context())
 
     assert ssl_context is not None
     assert ssl_context.check_hostname is False
     assert ssl_context.verify_mode == ssl.CERT_NONE
 
 
-def test_websocket_verifies_certificates_by_default() -> None:
+def test_websocket_builds_verified_context_outside_event_loop(monkeypatch) -> None:
+    context_threads = []
+
+    def create_default_context() -> ssl.SSLContext:
+        context_threads.append(threading.current_thread())
+        return ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+
+    monkeypatch.setattr(ssl, "create_default_context", create_default_context)
     connection = LoxoneConnection(
         host="192.0.2.1",
         port=443,
@@ -85,4 +93,10 @@ def test_websocket_verifies_certificates_by_default() -> None:
         password="password",
     )
 
-    assert connection._websocket_ssl_context() is None
+    ssl_context = asyncio.run(connection._async_websocket_ssl_context())
+
+    assert ssl_context is not None
+    assert ssl_context.check_hostname is True
+    assert ssl_context.verify_mode == ssl.CERT_REQUIRED
+    assert context_threads
+    assert context_threads[0] is not threading.main_thread()
