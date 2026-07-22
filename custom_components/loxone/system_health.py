@@ -19,24 +19,25 @@ def async_register(
 
 
 async def system_health_info(hass: HomeAssistant) -> dict[str, Any]:
-    """Get info for the info page."""
-    for k, v in hass.data[DOMAIN].items():
-        if hasattr(v, "miniserver"):
-            miniserver_serial = v.miniserver.serial
-            software_version = v.miniserver.software_version
-            project_name = v.miniserver.lox_config.json["msInfo"]["projectName"]
-            local_url = v.miniserver.lox_config.json["msInfo"]["localUrl"]
-            remote_url = v.miniserver.lox_config.json["msInfo"]["remoteUrl"]
-        else:
-            miniserver_serial = "Unavailable"
-            software_version = "Unavailable"
-            project_name = "Unavailable"
-            local_url = "Unavailable"
-            remote_url = "Unavailable"
-        return {
-            "Loxone Miniserver Serial": miniserver_serial,
-            "Project Name": project_name,
-            "Local Url": local_url,
-            "Remote Url": remote_url,
-            "Loxone Software Version": software_version,
-        }
+    """Return aggregate health data without private installation identifiers."""
+    coordinators = list(hass.data.get(DOMAIN, {}).values())
+    connected = 0
+    software_versions: set[str] = set()
+    miniserver_types: set[str] = set()
+    for coordinator in coordinators:
+        api = getattr(coordinator, "api", None)
+        miniserver = getattr(coordinator, "miniserver", None)
+        if api and getattr(api, "is_connected", False):
+            connected += 1
+        if miniserver:
+            if version := getattr(miniserver, "software_version", None):
+                software_versions.add(str(version))
+            if (server_type := getattr(miniserver, "miniserver_type", None)) is not None:
+                miniserver_types.add(str(server_type))
+
+    return {
+        "Configured Miniservers": len(coordinators),
+        "Connected Miniservers": connected,
+        "Loxone Software Versions": sorted(software_versions),
+        "Miniserver Types": sorted(miniserver_types),
+    }

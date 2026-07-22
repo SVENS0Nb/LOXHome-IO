@@ -1,5 +1,8 @@
 name: Validate
 
+permissions:
+  contents: read
+
 on:
   push:
   pull_request:
@@ -10,8 +13,11 @@ on:
 jobs:
   validate-hacs:
     runs-on: "ubuntu-latest"
+    timeout-minutes: 10
     steps:
-      - uses: "actions/checkout@v3"
+      - uses: "actions/checkout@v6"
+        with:
+          persist-credentials: false
       - name: HACS validation
         uses: "hacs/action@main"
         with:

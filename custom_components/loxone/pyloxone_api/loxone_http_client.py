@@ -29,6 +29,7 @@ class LoxoneAsyncHttpClient:
         scheme: str = "http",
         verify_ssl: bool = True,
         session: aiohttp.ClientSession = None,
+        timeout: float = TIMEOUT,
     ):
         # Validate input parameters
         if not url:
@@ -41,6 +42,8 @@ class LoxoneAsyncHttpClient:
             raise ValueError(f"Invalid scheme '{scheme}'. Must be 'http' or 'https'")
         if not isinstance(verify_ssl, bool):
             raise ValueError("verify_ssl must be a boolean")
+        if not isinstance(timeout, (int, float)) or timeout <= 0:
+            raise ValueError("timeout must be a positive number")
 
         # super().__init__()
         if session is None:
@@ -53,7 +56,7 @@ class LoxoneAsyncHttpClient:
             self.session = session
             self._own_session = False
 
-        self.timeout = TIMEOUT
+        self.timeout = float(timeout)
         self.base_url = f"{scheme}://{url}"
         self.scheme = scheme
         self.verify_ssl = verify_ssl
@@ -76,7 +79,7 @@ class LoxoneAsyncHttpClient:
         response = None
 
         try:
-            _LOGGER.debug(f"Making GET request to: {url}")
+            _LOGGER.debug("Making Miniserver HTTP request")
             request_kwargs = {
                 "auth": aiohttp.BasicAuth(self.username, self.password),
                 "timeout": aiohttp.ClientTimeout(total=self.timeout),
@@ -91,45 +94,34 @@ class LoxoneAsyncHttpClient:
 
             return response
 
-        except aiohttp.ClientConnectionError as err:
-            _LOGGER.error(f"Connection error to {url}: {err}")
-            raise ConnectionError(
-                f"Failed to connect to Loxone Miniserver at {url}: {err}"
-            ) from err
-
-        except aiohttp.ClientConnectorError as err:
-            _LOGGER.error(f"Connector error to {url}: {err}")
-            raise ConnectionError(f"Cannot resolve or connect to {url}: {err}") from err
-
         except asyncio.TimeoutError as err:
-            _LOGGER.error(f"Timeout error for {url}")
             raise TimeoutError(
-                f"Request to {url} timed out after {self.timeout} seconds"
+                f"Miniserver request timed out after {self.timeout} seconds"
             ) from err
 
         except aiohttp.ClientSSLError as err:
-            _LOGGER.error(f"SSL error for {url}: {err}")
-            raise ConnectionError(f"SSL/TLS error connecting to {url}: {err}") from err
+            raise ConnectionError("Miniserver TLS connection failed") from err
 
         except aiohttp.ClientProxyConnectionError as err:
-            _LOGGER.error(f"Proxy connection error for {url}: {err}")
-            raise ConnectionError(f"Proxy connection error: {err}") from err
+            raise ConnectionError("Miniserver proxy connection failed") from err
+
+        except aiohttp.ClientConnectorError as err:
+            raise ConnectionError("Cannot resolve or connect to Miniserver") from err
 
         except aiohttp.ServerDisconnectedError as err:
-            _LOGGER.error(f"Server disconnected for {url}: {err}")
-            raise ConnectionError(f"Server disconnected unexpectedly: {err}") from err
+            raise ConnectionError("Miniserver disconnected unexpectedly") from err
+
+        except aiohttp.ClientConnectionError as err:
+            raise ConnectionError("Miniserver connection failed") from err
 
         except aiohttp.ClientPayloadError as err:
-            _LOGGER.error(f"Payload error for {url}: {err}")
-            raise ValueError(f"Invalid response payload from server: {err}") from err
+            raise ValueError("Invalid response payload from Miniserver") from err
 
         except aiohttp.ClientResponseError as err:
-            _LOGGER.error(f"Response error for {url}: {err}")
-            raise RuntimeError(f"HTTP response error: {err}") from err
+            raise RuntimeError("Invalid HTTP response from Miniserver") from err
 
         except aiohttp.ClientError as err:
-            _LOGGER.error(f"Client error for {url}: {err}")
-            raise RuntimeError(f"HTTP client error: {err}") from err
+            raise RuntimeError("Miniserver HTTP client error") from err
 
         except (
             LoxoneUnauthorisedError,
@@ -141,8 +133,7 @@ class LoxoneAsyncHttpClient:
             raise
 
         except Exception as err:
-            _LOGGER.exception(f"Unexpected error during GET request to {url}")
-            raise RuntimeError(f"Unexpected error during HTTP request: {err}") from err
+            raise RuntimeError("Unexpected Miniserver HTTP error") from err
 
     async def close(self):
         if self._closed:
@@ -155,94 +146,58 @@ class LoxoneAsyncHttpClient:
             self._closed = True
             _LOGGER.debug("HTTP client closed successfully")
         except Exception as err:
-            _LOGGER.error(f"Error closing HTTP client: {err}")
             self._closed = True
-            raise RuntimeError(f"Failed to close HTTP session: {err}") from err
+            raise RuntimeError("Failed to close Miniserver HTTP session") from err
 
     @staticmethod
     async def _handle_error(response):
-        content = None
-
         try:
-            # Try to read content with timeout protection
-            try:
-                content = await asyncio.wait_for(response.content.read(), timeout=5.0)
-                content = content.decode("utf-8", errors="replace")
-            except asyncio.TimeoutError:
-                _LOGGER.warning("Timeout reading error response content")
-                content = "<timeout reading response>"
-            except UnicodeDecodeError as err:
-                _LOGGER.warning(f"Failed to decode response content: {err}")
-                content = "<binary content>"
-            except Exception as err:
-                _LOGGER.warning(f"Error reading response content: {err}")
-                content = f"<error reading content: {err}>"
-
-        except Exception as err:
-            _LOGGER.error(f"Critical error handling response: {err}")
-            content = "<unavailable>"
+            # Consume the body so the connection can be reused, but never retain,
+            # log, or surface untrusted response content.
+            await asyncio.wait_for(response.content.read(), timeout=5.0)
+        except Exception:
+            pass
 
         # Handle specific HTTP status codes
         if response.status == 400:
-            _LOGGER.error(f"Bad Request (400): {content}")
-            raise ValueError(f"Bad request to Loxone Miniserver: {content}")
+            raise ValueError("Bad request to Loxone Miniserver")
 
         elif response.status == 401:
-            _LOGGER.error(f"Unauthorized (401): {content}")
-            err = LoxoneUnauthorisedError(f"Unauthorized: {content}")
-            err.response = response
-            raise err
+            raise LoxoneUnauthorisedError("Miniserver rejected the credentials")
 
         elif response.status == 403:
-            _LOGGER.error(f"Forbidden (403): {content}")
-            raise PermissionError(f"Access forbidden: {content}")
+            raise PermissionError("Miniserver access forbidden")
 
         elif response.status == 404:
-            _LOGGER.error(f"Not Found (404): {content}")
-            err = LoxoneUnrecognizedCommandError(f"Unrecognized command: {content}")
-            err.response = response
-            raise err
+            raise LoxoneUnrecognizedCommandError("Miniserver command not found")
 
         elif response.status == 408:
-            _LOGGER.error(f"Request Timeout (408): {content}")
-            raise TimeoutError(f"Request timeout: {content}")
+            raise TimeoutError("Miniserver request timed out")
 
         elif response.status == 429:
-            _LOGGER.error(f"Too Many Requests (429): {content}")
-            raise RuntimeError(f"Rate limit exceeded: {content}")
+            raise RuntimeError("Miniserver rate limit exceeded")
 
         elif response.status == 500:
-            _LOGGER.error(f"Internal Server Error (500): {content}")
-            raise RuntimeError(f"Miniserver internal error: {content}")
+            raise RuntimeError("Miniserver internal error")
 
         elif response.status == 502:
-            _LOGGER.error(f"Bad Gateway (502): {content}")
-            raise ConnectionError(f"Bad gateway: {content}")
+            raise ConnectionError("Miniserver gateway failed")
 
         elif response.status == 503:
-            _LOGGER.error(f"Service Unavailable (503): {content}")
-            err = LoxoneServiceUnAvailableError(
-                f"Service Unavailable; The Miniserver is restarting and not ready for requests: {content}"
+            raise LoxoneServiceUnAvailableError(
+                "The Miniserver is restarting and not ready for requests"
             )
-            err.response = response
-            raise err
 
         elif response.status == 504:
-            _LOGGER.error(f"Gateway Timeout (504): {content}")
-            raise TimeoutError(f"Gateway timeout: {content}")
+            raise TimeoutError("Miniserver gateway timed out")
 
         elif response.status == 901:
-            _LOGGER.error(f"Max Connections (901): {content}")
-            err = LoxoneMaxNumOfConnectionsError(
-                f"Maximum number of allowed concurrent connections reached: {content}"
+            raise LoxoneMaxNumOfConnectionsError(
+                "Maximum number of Miniserver connections reached"
             )
-            err.response = response
-            raise err
 
         else:
-            # Generic error for any other status code
-            _LOGGER.error(f"HTTP Error {response.status}: {content}")
-            raise RuntimeError(f"HTTP error {response.status}: {content}")
+            raise RuntimeError(f"Miniserver HTTP error {response.status}")
 
     # def __enter__(self):
     #     raise RuntimeError("Use 'async with' to create an AsyncHttpClient instance")

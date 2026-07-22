@@ -36,7 +36,11 @@ class LoxoneClientConnection(ClientConnection):
 
     async def recv(self, decode: bool | None = False) -> str | bytes:
         result = await super().recv(decode)
-        _LOGGER.debug(f"Received: {result[:80]!r}")
+        _LOGGER.debug(
+            "Received WebSocket frame (%s, %d bytes)",
+            type(result).__name__,
+            len(result),
+        )
         return result
 
     async def send(
@@ -44,7 +48,12 @@ class LoxoneClientConnection(ClientConnection):
         message: Data | Iterable[Data] | AsyncIterable[Data],
         text: bool | None = None,
     ) -> None:
-        _LOGGER.debug(f"Sent:{message}")
+        size = len(message) if isinstance(message, (str, bytes, list, tuple)) else None
+        _LOGGER.debug(
+            "Sending WebSocket frame (%s%s)",
+            type(message).__name__,
+            f", {size} bytes/items" if size is not None else "",
+        )
         result = await super().send(message, text)
         return result
 
@@ -87,7 +96,7 @@ class LoxoneClientConnection(ClientConnection):
             raise LoxoneException(
                 f"Expected a bytes header, but received {header_data}"
             )
-        _LOGGER.debug(f"Parsing header {header_data[:80]!r}")
+        _LOGGER.debug("Parsing WebSocket header (%d bytes)", len(header_data))
         header = parse_header(header_data)
         self._last_header = header
         if header.message_type is MessageType.OUT_OF_SERVICE:
@@ -98,6 +107,10 @@ class LoxoneClientConnection(ClientConnection):
         if header.message_type == MessageType.TEXT:
             message_data = check_and_decode_if_needed(message_data)
 
-        _LOGGER.debug(f"Parsing message {message_data[:80]!r} ({header.message_type})")
+        _LOGGER.debug(
+            "Parsing WebSocket payload (%s, %d bytes)",
+            header.message_type,
+            len(message_data),
+        )
         message = parse_message(message_data, header.message_type)
         return message

@@ -95,6 +95,23 @@ def _connection_schema(defaults: Mapping[str, Any] | None = None) -> vol.Schema:
     )
 
 
+def _reauth_schema(username: str) -> vol.Schema:
+    """Build a credential-only reauthentication form without exposing a password."""
+    return vol.Schema(
+        {
+            vol.Required(CONF_USERNAME, default=username): TextSelector(
+                TextSelectorConfig(type=TextSelectorType.TEXT, autocomplete="username")
+            ),
+            vol.Required(CONF_PASSWORD): TextSelector(
+                TextSelectorConfig(
+                    type=TextSelectorType.PASSWORD,
+                    autocomplete="current-password",
+                )
+            ),
+        }
+    )
+
+
 def _validate_latin1(user_input: Mapping[str, Any]) -> None:
     """Validate credentials supported by the Loxone hashing implementation."""
     for key in (CONF_USERNAME, CONF_PASSWORD):
@@ -335,6 +352,53 @@ class LoxoneFlowHandler(_EntitySelectionMixin, config_entries.ConfigFlow, domain
         """Import legacy YAML configuration without changing its import-all behaviour."""
         user_input.setdefault(CONF_ALLOW_INSECURE_HTTP, True)
         return self.async_create_entry(title="Loxone", data={}, options=user_input)
+
+    async def async_step_reauth(
+        self, _entry_data: Mapping[str, Any]
+    ) -> ConfigFlowResult:
+        """Start reauthentication after Home Assistant detects rejected credentials."""
+        return await self.async_step_reauth_confirm()
+
+    async def async_step_reauth_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Validate replacement credentials and reload the existing entry."""
+        reauth_entry = self._get_reauth_entry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            connection_options = {**reauth_entry.options, **user_input}
+            try:
+                _validate_latin1(connection_options)
+                _validate_transport(connection_options)
+                structure, token = await _async_read_structure(
+                    self.hass, connection_options
+                )
+            except vol.Invalid as err:
+                errors["base"] = _flow_error_from_invalid(err)
+            except LoxoneUnauthorisedError:
+                errors["base"] = "invalid_auth"
+            except (LoxoneException, OSError, TimeoutError, ValueError, RuntimeError):
+                errors["base"] = "cannot_connect"
+            else:
+                serial = str(structure.get("msInfo", {}).get("serialNr", ""))
+                if not serial:
+                    errors["base"] = "cannot_connect"
+                else:
+                    await self.async_set_unique_id(serial)
+                    self._abort_if_unique_id_mismatch(reason="wrong_miniserver")
+                    return self.async_update_reload_and_abort(
+                        reauth_entry,
+                        data=token,
+                        options=connection_options,
+                    )
+
+        return self.async_show_form(
+            step_id="reauth_confirm",
+            data_schema=_reauth_schema(
+                str(reauth_entry.options.get(CONF_USERNAME, ""))
+            ),
+            errors=errors,
+        )
 
     @staticmethod
     def async_get_options_flow(config_entry):

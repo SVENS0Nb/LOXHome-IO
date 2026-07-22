@@ -16,6 +16,7 @@ hass.py
 *.yml
 !/.github/workflows/*.yml
 !/.github/ISSUE_TEMPLATE/*.yml
+!/.github/dependabot.yml
 
 *.db
 *.log
@@ -38,6 +39,7 @@ ha_data_folder/
 */dist/*
 
 # misc
+.DS_Store
 .coverage
 coverage.xml
 .ruff_cache

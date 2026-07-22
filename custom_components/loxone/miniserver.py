@@ -3,6 +3,7 @@ import logging
 import traceback
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
+from urllib.parse import urlparse, urlunparse
 
 from homeassistant.const import (CONF_HOST, CONF_PASSWORD, CONF_PORT,
                                  CONF_USERNAME)
@@ -20,6 +21,24 @@ NEW_LIGHT = "lights"
 NEW_SCENE = "scenes"
 NEW_SENSOR = "sensors"
 NEW_COVERS = "covers"
+
+
+def _configuration_url(host: str, port: int) -> str:
+    """Return a credential-free URL matching the configured transport."""
+    parsed = urlparse(host if "://" in host else f"//{host}")
+    scheme = parsed.scheme.casefold() or ("https" if port == 443 else "http")
+    hostname = parsed.hostname or parsed.path
+    if not hostname:
+        raise ValueError("A Miniserver hostname is required")
+    display_host = f"[{hostname}]" if ":" in hostname else hostname
+    effective_port = parsed.port or port
+    default_port = 443 if scheme == "https" else 80
+    netloc = (
+        f"{display_host}:{effective_port}"
+        if effective_port != default_port
+        else display_host
+    )
+    return urlunparse((scheme, netloc, parsed.path.rstrip("/"), "", "", ""))
 
 
 @callback
@@ -109,8 +128,8 @@ class MiniServer:
             identifiers={(DOMAIN, self.serial)},
             manufacturer="Loxone",
             sw_version=self.software_version,
-            configuration_url="http://{host}:{port}".format(
-                host=self.config_entry.options[CONF_HOST],
-                port=self.config_entry.options[CONF_PORT],
+            configuration_url=_configuration_url(
+                str(self.config_entry.options[CONF_HOST]),
+                int(self.config_entry.options[CONF_PORT]),
             ),
         )

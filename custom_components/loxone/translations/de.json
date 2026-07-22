@@ -3,7 +3,9 @@
     "abort": {
       "already_configured": "Dieser Loxone Miniserver ist bereits konfiguriert.",
       "single_instance_allowed": "Bereits konfiguriert",
-      "cannot_connect": "Die Verbindung zum Loxone Miniserver konnte nicht hergestellt werden."
+      "cannot_connect": "Die Verbindung zum Loxone Miniserver konnte nicht hergestellt werden.",
+      "reauth_successful": "Die Loxone-Zugangsdaten wurden erfolgreich aktualisiert.",
+      "wrong_miniserver": "Die Zugangsdaten gehören zu einem anderen Loxone Miniserver."
     },
     "error": {
       "cannot_connect": "Verbindung fehlgeschlagen. Bitte URL, Port und Netzwerk prüfen.",
@@ -42,6 +44,14 @@
           "lock_action": "Verriegeln-Aktion",
           "unlock_action": "Entriegeln-Aktion",
           "open_action": "Türfalle öffnen"
+        }
+      },
+      "reauth_confirm": {
+        "title": "LOXHome I/O erneut authentifizieren",
+        "description": "Gib gültige Zugangsdaten für den konfigurierten Loxone Miniserver ein.",
+        "data": {
+          "username": "Benutzer",
+          "password": "Passwort"
         }
       }
     }

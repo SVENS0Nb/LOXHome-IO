@@ -1,0 +1,2 @@
+websockets==16.1.1
+pycryptodome==3.23.0
