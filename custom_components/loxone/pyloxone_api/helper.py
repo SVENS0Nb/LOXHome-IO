@@ -7,9 +7,9 @@ https://github.com/JoDehli/pyloxone-api
 
 import hashlib
 import logging
-from hmac import HMAC
-
-from Crypto.Hash import HMAC, SHA1, SHA256
+# PyCryptodome intentionally uses the legacy Crypto namespace. Bandit B413
+# cannot distinguish it from the unmaintained PyCrypto project.
+from Crypto.Hash import HMAC, SHA1, SHA256  # nosec B413
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -32,7 +32,8 @@ def hash_token(key: str, string_to_hash: str, hash_alg: str = "SHA1") -> str | N
 def generate_hmac(data: str, hash_alg: str) -> str | None:
     """Generate HMAC hash."""
     if hash_alg == "SHA1":
-        m = hashlib.sha1()
+        # SHA-1 is selected only when required by the Miniserver protocol.
+        m = hashlib.sha1()  # nosec B324
     elif hash_alg == "SHA256":
         m = hashlib.sha256()
     else:

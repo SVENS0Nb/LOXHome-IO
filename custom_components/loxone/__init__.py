@@ -433,23 +433,14 @@ async def async_setup_entry(hass, config_entry):
         await async_set_options(hass, config_entry)
 
     coordinator = LoxoneCoordinator(hass, config_entry)
-    host = config_entry.options.get(CONF_HOST)
-
-    _LOGGER.info(
-        "Setting up Loxone integration for Miniserver at %s:%s",
-        host,
-        config_entry.options.get(CONF_PORT),
-    )
+    _LOGGER.info("Setting up LOXHome I/O")
 
     try:
         await coordinator.async_config_entry_first_refresh()
     except LoxoneServiceUnAvailableError as err:
         if coordinator.api:
             await coordinator.api.close()
-        _LOGGER.warning(
-            "Loxone Miniserver at %s is unavailable (service restarting?). Will retry automatically",
-            host,
-        )
+        _LOGGER.debug("Loxone Miniserver unavailable; Home Assistant will retry")
         raise ConfigEntryNotReady from err
     except LoxoneUnauthorisedError as err:
         if coordinator.api:
@@ -460,11 +451,7 @@ async def async_setup_entry(hass, config_entry):
     except OSError as err:
         if coordinator.api:
             await coordinator.api.close()
-        _LOGGER.warning(
-            "Network error connecting to Loxone Miniserver at %s: %s. Will retry automatically",
-            host,
-            err,
-        )
+        _LOGGER.debug("Miniserver network connection failed; Home Assistant will retry")
         raise ConfigEntryNotReady from err
     except (
         LoxoneConnectionError,
@@ -474,26 +461,15 @@ async def async_setup_entry(hass, config_entry):
     ) as err:
         if coordinator.api:
             await coordinator.api.close()
-        _LOGGER.warning(
-            "Could not connect to Loxone Miniserver at %s: %s. Will retry automatically",
-            host,
-            err,
-        )
+        _LOGGER.debug("Miniserver connection failed; Home Assistant will retry")
         raise ConfigEntryNotReady from err
     except Exception as err:
         if coordinator.api:
             await coordinator.api.close()
-        _LOGGER.warning(
-            "Unexpected error connecting to Loxone Miniserver at %s: %s. Will retry automatically",
-            host,
-            err,
-        )
+        _LOGGER.debug("Unexpected Miniserver connection failure; Home Assistant will retry")
         raise ConfigEntryNotReady from err
 
-    _LOGGER.info(
-        "Successfully connected to Loxone Miniserver at %s",
-        host,
-    )
+    _LOGGER.info("Successfully connected to Loxone Miniserver")
 
     await _async_migrate_door_identities(
         hass, config_entry, coordinator.api.structure_file

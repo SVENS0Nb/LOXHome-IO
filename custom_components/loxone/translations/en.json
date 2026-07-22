@@ -3,7 +3,9 @@
     "abort": {
       "already_configured": "This Loxone Miniserver is already configured.",
       "single_instance_allowed": "Already configured. Only a single configuration possible.",
-      "cannot_connect": "The Loxone Miniserver could not be reached."
+      "cannot_connect": "The Loxone Miniserver could not be reached.",
+      "reauth_successful": "The Loxone credentials were updated successfully.",
+      "wrong_miniserver": "The credentials belong to a different Loxone Miniserver."
     },
     "error": {
       "cannot_connect": "Connection failed. Check the URL, port and network.",
@@ -42,6 +44,14 @@
           "lock_action": "Lock action",
           "unlock_action": "Unlock action",
           "open_action": "Open latch action"
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate LOXHome I/O",
+        "description": "Enter valid credentials for the configured Loxone Miniserver.",
+        "data": {
+          "username": "User",
+          "password": "Password"
         }
       }
     }
