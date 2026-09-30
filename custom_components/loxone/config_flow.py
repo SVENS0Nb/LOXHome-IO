@@ -243,6 +243,7 @@ class _EntitySelectionMixin:
                 "lock_action": user_input.get("lock_action"),
                 "unlock_action": user_input.get("unlock_action"),
                 "open_action": user_input.get("open_action"),
+                "assume_closed_after_open": user_input.get("assume_closed_after_open") is True,
             }
             if door_key.startswith("access_lock:"):
                 self._door_profiles[door_key].update({
@@ -277,6 +278,9 @@ class _EntitySelectionMixin:
                     description={"suggested_value": existing.get("open_action")},
                 ): action_selector,
             }
+        schema[vol.Optional(
+            "assume_closed_after_open", default=existing.get("assume_closed_after_open", False)
+        )] = BooleanSelector()
         if door_key.startswith("access_lock:"):
             feedback_options = build_feedback_options(self._structure)
             if feedback_options:

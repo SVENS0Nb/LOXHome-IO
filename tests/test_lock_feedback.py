@@ -197,11 +197,12 @@ def test_profile_flow_exposes_and_stores_direct_feedback():
     flow._door_position = 0
     form = asyncio.run(flow.async_step_door_profile())
     fields = {str(key) for key in form["data_schema"].schema}
-    assert {"locked_state", "invert_locked_state"} <= fields
-    result = asyncio.run(flow.async_step_door_profile({"locked_state": "bolt"}))
+    assert {"locked_state", "invert_locked_state", "assume_closed_after_open"} <= fields
+    result = asyncio.run(flow.async_step_door_profile({"locked_state": "bolt", "assume_closed_after_open": True}))
     assert result[key]["locked_state"] == "bolt"
     assert result[key]["invert_locked_state"] is False
     assert result[key]["open_action"] is None
+    assert result[key]["assume_closed_after_open"] is True
 
 
 def test_local_transport_timer_clears_state_and_is_removed(monkeypatch):
@@ -232,3 +233,156 @@ def test_local_transport_timer_clears_state_and_is_removed(monkeypatch):
     asyncio.run(timer["callback"](None))
     assert entity.available and entity.is_locked is None
     assert entity.async_write_ha_state.call_count == 2
+
+
+def _fallback(monkeypatch, **kwargs):
+    entity, api = _entity(profile={"open_action": "actuator|pulse", "assume_closed_after_open": True}, **kwargs)
+    timers = []
+
+    def register(hass, delay, callback):
+        cancel = Mock()
+        timers.append((delay, callback, cancel))
+        return cancel
+
+    monkeypatch.setattr(lock_module, "async_call_later", register)
+    return entity, api, timers
+
+
+@pytest.mark.parametrize("binary", [True, False])
+def test_opt_in_fallback_changes_only_display_after_five_seconds(monkeypatch, binary):
+    entity, _, timers = _fallback(monkeypatch, binary=binary)
+    assert entity.is_locked is None and not entity.assumed_state
+    asyncio.run(entity.async_open())
+    assert len(timers) == 1 and timers[0][0] == 5
+    assert entity.is_locked is False and entity.is_open is True
+    assert entity.assumed_state and entity.icon == "mdi:lock-question"
+    asyncio.run(timers[0][1](None))
+    assert entity.is_locked is True and entity.is_open is False
+    assert entity.extra_state_attributes["state_estimated"] is True
+    assert entity.extra_state_attributes["state_basis"] == "five_second_open_fallback"
+    entity.async_send_command.assert_awaited_once_with("actuator", "pulse")
+
+
+def test_default_no_feedback_does_not_start_an_estimate(monkeypatch):
+    schedule = Mock()
+    monkeypatch.setattr(lock_module, "async_call_later", schedule)
+    entity, _ = _entity(binary=True, profile={"open_action": "actuator|pulse"})
+    asyncio.run(entity.async_open())
+    schedule.assert_not_called()
+    assert entity.is_locked is None and not entity.assumed_state
+
+
+@pytest.mark.parametrize("value", [0, 1])
+def test_existing_real_feedback_prevents_fallback(monkeypatch, value):
+    entity, _, timers = _fallback(monkeypatch, binary=True)
+    _event(entity, value)
+    asyncio.run(entity.async_open())
+    assert not timers
+    assert entity.is_locked is bool(value) and not entity.assumed_state
+
+
+@pytest.mark.parametrize("value", [0, 1, "unknown"])
+def test_feedback_cancels_fallback_even_if_callback_was_queued(monkeypatch, value):
+    entity, _, timers = _fallback(monkeypatch, binary=True)
+    asyncio.run(entity.async_open())
+    _event(entity, value)
+    timers[0][2].assert_called_once()
+    asyncio.run(timers[0][1](None))
+    assert entity.is_locked is binary_feedback(value)
+    assert not entity.assumed_state
+
+
+def test_repeated_open_replaces_timer(monkeypatch):
+    entity, _, timers = _fallback(monkeypatch, binary=True)
+    asyncio.run(entity.async_open())
+    asyncio.run(entity.async_open())
+    timers[0][2].assert_called_once()
+    assert len(timers) == 2
+    asyncio.run(timers[0][1](None))
+    assert entity.is_locked is False
+    asyncio.run(timers[1][1](None))
+    assert entity.is_locked is True
+
+
+def test_failed_repeat_clears_old_estimate_without_starting_timer(monkeypatch):
+    entity, _, timers = _fallback(monkeypatch, binary=True)
+    asyncio.run(entity.async_open())
+    entity.async_send_command.side_effect = HomeAssistantError("synthetic failure")
+    with pytest.raises(HomeAssistantError):
+        asyncio.run(entity.async_open())
+    assert len(timers) == 1
+    asyncio.run(timers[0][1](None))
+    assert entity.is_locked is None and not entity.assumed_state
+
+
+def test_failed_secured_request_does_not_start_fallback(monkeypatch):
+    entity, _, timers = _fallback(monkeypatch, binary=True, secured=True)
+    with pytest.raises(HomeAssistantError):
+        asyncio.run(entity.async_open())
+    assert not timers and entity.is_locked is None
+
+
+@pytest.mark.parametrize("change", ["disconnect", "new_connection", "unload"])
+def test_transport_or_unload_never_leaves_assumed_locked(monkeypatch, change):
+    entity, api, timers = _fallback(monkeypatch, binary=True)
+    asyncio.run(entity.async_open())
+    if change == "disconnect":
+        api.is_connected = False
+    elif change == "new_connection":
+        api.connection = object()
+    else:
+        asyncio.run(entity.async_will_remove_from_hass())
+        timers[0][2].assert_called_once()
+    asyncio.run(timers[0][1](None))
+    assert entity.is_locked is None and not entity.assumed_state
+
+
+def test_feedback_during_send_is_not_overridden(monkeypatch):
+    entity, _, timers = _fallback(monkeypatch, binary=True)
+
+    async def send(*_):
+        await entity.event_handler(SimpleNamespace(data={"config_entry_id": "entry-one", "status": 0}))
+
+    entity.async_send_command.side_effect = send
+    asyncio.run(entity.async_open())
+    assert not timers and entity.is_locked is False and not entity.assumed_state
+
+
+@pytest.mark.parametrize("operation", ["async_lock", "async_unlock"])
+def test_other_command_cancels_open_fallback(monkeypatch, operation):
+    entity, _, timers = _fallback(monkeypatch, binary=True)
+    asyncio.run(entity.async_open())
+    # Even a rejected/unmapped command invalidates an old display estimate.
+    with pytest.raises(HomeAssistantError):
+        asyncio.run(getattr(entity, operation)())
+    asyncio.run(timers[0][1](None))
+    assert entity.is_locked is None
+
+
+def test_older_inflight_open_cannot_replace_newer_timer(monkeypatch):
+    entity, _, timers = _fallback(monkeypatch, binary=True)
+
+    async def run():
+        started = asyncio.Event()
+        release = asyncio.Event()
+        count = 0
+
+        async def send(*_):
+            nonlocal count
+            count += 1
+            if count == 1:
+                started.set()
+                await release.wait()
+
+        entity.async_send_command.side_effect = send
+        first = asyncio.create_task(entity.async_open())
+        await started.wait()
+        await entity.async_open()
+        assert len(timers) == 1
+        release.set()
+        await first
+        assert len(timers) == 1
+        await timers[0][1](None)
+        assert entity.is_locked is True
+
+    asyncio.run(run())

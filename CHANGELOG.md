@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.1
+
+- Add an explicit per-door five-second display fallback after a successfully
+  sent open command when no definite Loxone lock status exists. Disabled by
+  default; no lock command, automation, credential or Miniserver change.
+- Mark both phases as assumed state with a question-mark lock icon and source
+  attributes. Real feedback always takes precedence; repeated opens replace the
+  timer, failed commands cannot create an estimate, and disconnect/reload clears
+  it. Initial state stays unknown rather than claiming a secure door at startup.
+- Add synthetic timer/race/feedback regression tests and German/English labels.
+
 ## 0.11.0
 
 - Add separately selected lock profiles for NFC access outputs and door-release
