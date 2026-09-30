@@ -28,6 +28,7 @@ from .catalog import (
     EntityCandidate,
     build_action_options,
     build_entity_catalog,
+    build_feedback_options,
     entity_is_selected,
 )
 from .const import (
@@ -243,6 +244,11 @@ class _EntitySelectionMixin:
                 "unlock_action": user_input.get("unlock_action"),
                 "open_action": user_input.get("open_action"),
             }
+            if door_key.startswith("access_lock:"):
+                self._door_profiles[door_key].update({
+                    "locked_state": user_input.get("locked_state"),
+                    "invert_locked_state": user_input.get("invert_locked_state") is True,
+                })
             self._door_position += 1
             if self._door_position >= len(self._door_keys):
                 return await self._async_finish_selection()
@@ -271,6 +277,17 @@ class _EntitySelectionMixin:
                     description={"suggested_value": existing.get("open_action")},
                 ): action_selector,
             }
+        if door_key.startswith("access_lock:"):
+            feedback_options = build_feedback_options(self._structure)
+            if feedback_options:
+                schema[vol.Optional(
+                    "locked_state", description={"suggested_value": existing.get("locked_state")}
+                )] = SelectSelector(SelectSelectorConfig(
+                    options=feedback_options, multiple=False, mode=SelectSelectorMode.DROPDOWN
+                ))
+                schema[vol.Optional(
+                    "invert_locked_state", default=existing.get("invert_locked_state", False)
+                )] = BooleanSelector()
         return self.async_show_form(
             step_id="door_profile",
             data_schema=vol.Schema(schema),

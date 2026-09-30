@@ -39,11 +39,13 @@
       },
       "door_profile": {
         "title": "Türprofil {current} von {total}: {door}",
-        "description": "Der Verriegelungszustand stammt aus dem WindowMonitor. Weise nur Befehle zu, die an deiner Anlage nachweislich die beschriebene physische Aktion auslösen. Nicht zugeordnete Aktionen bleiben gesperrt.",
+        "description": "Loxone meldet den Zustand, Home Assistant übernimmt ihn: direkt vom WindowMonitor oder bei einem Türöffnerprofil von einem vorhandenen digitalen Schlossstatus (1 = verriegelt, 0 = entriegelt). Ohne Rückmeldung bleibt der Zustand unbekannt. Geschlossen allein bedeutet nicht verriegelt. Nur bekannte Türaktionen zuordnen; geschützte Aktionen behalten ihre Loxone-Authentifizierung.",
         "data": {
           "lock_action": "Verriegeln-Aktion",
           "unlock_action": "Entriegeln-Aktion",
-          "open_action": "Türfalle öffnen"
+          "open_action": "Türfalle öffnen",
+          "locked_state": "Vorhandener Loxone-Schlossstatus",
+          "invert_locked_state": "Loxone-Signal verwendet 0 = verriegelt und 1 = entriegelt"
         }
       },
       "reauth_confirm": {
@@ -101,11 +103,13 @@
       },
       "door_profile": {
         "title": "Türprofil {current} von {total}: {door}",
-        "description": "Optionale physische Aktionen für diese Tür. Nicht zugeordnete Aktionen bleiben gesperrt.",
+        "description": "Loxone-Zustand direkt übernehmen, ohne Schätzung nach Befehlen. WindowMonitor-Türen verwenden ihren nativen Status. Türöffnerprofile können einen vorhandenen digitalen Schlossstatus verwenden (1 = verriegelt, 0 = entriegelt); sonst leer lassen. Geschlossen allein bedeutet nicht verriegelt. Nicht zugeordnete Aktionen bleiben gesperrt.",
         "data": {
           "lock_action": "Verriegeln-Aktion",
           "unlock_action": "Entriegeln-Aktion",
-          "open_action": "Türfalle öffnen"
+          "open_action": "Türfalle öffnen",
+          "locked_state": "Vorhandener Loxone-Schlossstatus",
+          "invert_locked_state": "Loxone-Signal verwendet 0 = verriegelt und 1 = entriegelt"
         }
       }
     }

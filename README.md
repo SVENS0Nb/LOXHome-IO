@@ -63,6 +63,7 @@ If you encounter a Loxone entity that is currently not supported, you can post a
 - Sauna (climate, temperature, humidity, mode, fan, timer and status sensors)
 - WindowMonitor doors as `lock` entities
 - NFC Code Touch access outputs as buttons and optional door actions
+- Explicit door profiles for NFC outputs and door-release Pushbuttons
 
 ## Selective entity import
 
@@ -77,6 +78,35 @@ Complex controls are split into independently selectable entities, including Lig
 Entries from a Loxone `WindowMonitor` can be selected as Home Assistant `lock` entities. The state is derived from the documented `windowStates` bitmask (`closed`, `open`, `tilted`, `locked`, `unlocked`). A plain closed state is deliberately not treated as locked.
 
 For each selected door the setup flow offers optional **lock**, **unlock** and **open latch** actions. These actions can be mapped to visible Pushbutton, Switch, TimedSwitch or NFC Code Touch access outputs. Commands are never guessed: if an action is not mapped, its Home Assistant service call is blocked with an error.
+
+NFC outputs and Pushbuttons now also offer separate, opt-in **door profile**
+`lock` entities. Existing buttons and their IDs remain unchanged. A generic
+Pushbutton is never automatically classified as a door. Select the lock profile
+only for a verified door control, then select its existing Loxone digital
+lock-status signal if one is exported (`InfoOnlyDigital.active`: 1 = locked,
+0 = unlocked; an explicit polarity option supports inverse signals). No helper
+sensor or Home Assistant automation is needed. Do not select a door-closed
+contact or unrelated signal as a lock-status signal.
+
+**Loxone remains the state authority.** No state is inferred from opening,
+locking, unlock requests, timers or the last sent command. With no exported
+status, a door profile shows **unknown**, not a fabricated locked state.
+On connection loss it becomes unavailable; new connections require fresh
+feedback. A closed-only WindowMonitor state does not imply a locked bolt.
+Native WindowMonitor entity IDs and existing command mappings are preserved.
+
+Loxone `jLocked` means the *control* is inhibited and `lockedOn` means it is held
+on by logic; neither is a door-lock state. NFC `deviceState` describes reader
+capabilities/availability, not the lock. See the official
+[Loxone Structure File specification](https://www.loxone.com/wp-content/uploads/datasheets/StructureFile.pdf)
+(Locking and Unlocking Controls, NFC Code Touch, Switch, WindowMonitor).
+
+Mapped actions marked `isSecured` use Loxone's secured-command path and require
+the visualization password as the service `code`. The integration does not
+store it, bypass it, or fall back to an unsecured command. Without it the action
+fails closed; receiving status does not require sending an action. A one-tap
+dashboard must not embed a password in Lovelace. This release does not implement
+server-side password storage or an administrator-only one-tap service.
 
 Only map a command after verifying its physical effect in Loxone. For access control, use a dedicated Loxone user with the minimum required permissions and prefer a local HTTPS connection.
 

@@ -39,11 +39,13 @@
       },
       "door_profile": {
         "title": "Door profile {current} of {total}: {door}",
-        "description": "The lock state comes from WindowMonitor. Only map commands that are known to perform the described physical action. Unmapped actions remain blocked.",
+        "description": "Mirror the reported Loxone lock state: native WindowMonitor, or select an existing digital lock-status signal for an access-output profile (1 = locked, 0 = unlocked). Leave it empty if Loxone exports no lock status; Home Assistant will show unknown, never infer locked from a command or closed contact. Only map known door actions. Secured actions retain Loxone authentication.",
         "data": {
           "lock_action": "Lock action",
           "unlock_action": "Unlock action",
-          "open_action": "Open latch action"
+          "open_action": "Open latch action",
+          "locked_state": "Existing Loxone lock-status signal",
+          "invert_locked_state": "Loxone signal uses 0 = locked and 1 = unlocked"
         }
       },
       "reauth_confirm": {
@@ -101,11 +103,13 @@
       },
       "door_profile": {
         "title": "Door profile {current} of {total}: {door}",
-        "description": "Optional physical actions for this door. Unmapped actions remain blocked.",
+        "description": "Mirror Loxone feedback, without optimistic state. WindowMonitor doors use their native status. Access-output profiles can use an existing digital lock-status signal (1 = locked, 0 = unlocked); leave empty if none exists. Closed alone does not mean locked. Only map known door actions; secured actions retain Loxone authentication.",
         "data": {
           "lock_action": "Lock action",
           "unlock_action": "Unlock action",
-          "open_action": "Open latch action"
+          "open_action": "Open latch action",
+          "locked_state": "Existing Loxone lock-status signal",
+          "invert_locked_state": "Loxone signal uses 0 = locked and 1 = unlocked"
         }
       }
     }
