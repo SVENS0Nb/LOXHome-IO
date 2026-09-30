@@ -118,12 +118,22 @@ capabilities/availability, not the lock. See the official
 [Loxone Structure File specification](https://www.loxone.com/wp-content/uploads/datasheets/StructureFile.pdf)
 (Locking and Unlocking Controls, NFC Code Touch, Switch, WindowMonitor).
 
-Mapped actions marked `isSecured` use Loxone's secured-command path and require
-the visualization password as the service `code`. The integration does not
-store it, bypass it, or fall back to an unsecured command. Without it the action
-fails closed; receiving status does not require sending an action. A one-tap
-dashboard must not embed a password in Lovelace. This release does not implement
-server-side password storage or an administrator-only one-tap service.
+Mapped actions marked `isSecured` always use Loxone's secured-command path,
+never an unsecured fallback. By default, they require the visualization password
+as the service `code`; receiving status requires no command.
+
+If the visualization password is **the same as the configured Loxone login
+password**, you can explicitly enable **Admin one-tap: reuse login password**
+for that door profile. It reuses the owning entry's existing server-side password
+without copying it to profiles, entity attributes or Lovelace. Standard
+`lock.open`, `lock.lock` and `lock.unlock` calls for this profile then require an
+identified, active Home Assistant administrator, even when a code is supplied.
+Other users and calls without a user context fail before any command or estimate.
+The code prompt is hidden; direct dashboard opening needs no extra confirmation.
+This does not permit anonymous access or disable Miniserver authentication.
+Scripts/automations without an administrator user context cannot use this mode.
+Do not enable it when the two passwords differ. With the option off, existing
+code-based behavior and HA entity permissions are unchanged.
 
 Only map a command after verifying its physical effect in Loxone. For access control, use a dedicated Loxone user with the minimum required permissions and prefer a local HTTPS connection.
 

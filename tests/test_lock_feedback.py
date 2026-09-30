@@ -197,12 +197,13 @@ def test_profile_flow_exposes_and_stores_direct_feedback():
     flow._door_position = 0
     form = asyncio.run(flow.async_step_door_profile())
     fields = {str(key) for key in form["data_schema"].schema}
-    assert {"locked_state", "invert_locked_state", "assume_closed_after_open"} <= fields
-    result = asyncio.run(flow.async_step_door_profile({"locked_state": "bolt", "assume_closed_after_open": True}))
+    assert {"locked_state", "invert_locked_state", "assume_closed_after_open", "admin_one_tap_use_login_password"} <= fields
+    result = asyncio.run(flow.async_step_door_profile({"locked_state": "bolt", "assume_closed_after_open": True, "admin_one_tap_use_login_password": True}))
     assert result[key]["locked_state"] == "bolt"
     assert result[key]["invert_locked_state"] is False
     assert result[key]["open_action"] is None
     assert result[key]["assume_closed_after_open"] is True
+    assert result[key]["admin_one_tap_use_login_password"] is True
 
 
 def test_local_transport_timer_clears_state_and_is_removed(monkeypatch):

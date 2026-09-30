@@ -244,6 +244,7 @@ class _EntitySelectionMixin:
                 "unlock_action": user_input.get("unlock_action"),
                 "open_action": user_input.get("open_action"),
                 "assume_closed_after_open": user_input.get("assume_closed_after_open") is True,
+                "admin_one_tap_use_login_password": user_input.get("admin_one_tap_use_login_password") is True,
             }
             if door_key.startswith("access_lock:"):
                 self._door_profiles[door_key].update({
@@ -280,6 +281,10 @@ class _EntitySelectionMixin:
             }
         schema[vol.Optional(
             "assume_closed_after_open", default=existing.get("assume_closed_after_open", False)
+        )] = BooleanSelector()
+        schema[vol.Optional(
+            "admin_one_tap_use_login_password",
+            default=existing.get("admin_one_tap_use_login_password", False),
         )] = BooleanSelector()
         if door_key.startswith("access_lock:"):
             feedback_options = build_feedback_options(self._structure)

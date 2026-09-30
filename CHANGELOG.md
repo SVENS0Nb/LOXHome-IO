@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.11.2
+
+- Add explicit per-door administrator-only one-tap mode when the visualization
+  password equals the existing Loxone login password. Reuse only the owning
+  entry's credential; do not add another password copy or expose it to Lovelace.
+- Enforce active HA administrator context for all commands in this mode,
+  including supplied-code requests. Reject absent/unknown/inactive/non-admin
+  callers before commands or estimated-state changes. Keep Miniserver protection.
+- Default code-based behavior is unchanged. Add synthetic authorization,
+  credential-isolation, error-redaction and five-second fallback tests.
+
 ## 0.11.1
 
 - Add an explicit per-door five-second display fallback after a successfully

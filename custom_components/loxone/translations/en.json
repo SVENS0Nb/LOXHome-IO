@@ -41,6 +41,7 @@
         "title": "Door profile {current} of {total}: {door}",
         "description": "Loxone feedback always takes priority. Without a definite status the state stays unknown unless you explicitly enable the five-second estimate. It applies only after an open command sent by this entity and is not proof of locking. Only map verified door actions and status signals. Secured actions retain Loxone authentication.",
         "data": {
+          "admin_one_tap_use_login_password": "Admin one-tap: login password is also visualization password (HA administrators only)",
           "assume_closed_after_open": "Without feedback: assume locked 5 seconds after opening (estimate only)",
           "lock_action": "Lock action",
           "unlock_action": "Unlock action",
@@ -106,6 +107,7 @@
         "title": "Door profile {current} of {total}: {door}",
         "description": "Mirror Loxone feedback directly. Optional without a definite status: assume locked five seconds after a sent open command. This is an estimate only and sends no locking command. Real feedback takes priority. Closed alone does not mean locked; unmapped actions stay blocked.",
         "data": {
+          "admin_one_tap_use_login_password": "Admin one-tap: login password is also visualization password (HA administrators only)",
           "assume_closed_after_open": "Without feedback: assume locked 5 seconds after opening (estimate only)",
           "lock_action": "Lock action",
           "unlock_action": "Unlock action",

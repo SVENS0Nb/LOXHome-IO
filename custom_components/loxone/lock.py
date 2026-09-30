@@ -9,8 +9,9 @@ from typing import Any
 
 from homeassistant.components.lock import LockEntity, LockEntityFeature
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import CONF_PASSWORD
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, Unauthorized
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_call_later, async_track_time_interval
 
@@ -189,6 +190,7 @@ class LoxoneDoorLock(LoxoneEntity, LockEntity):
         self._feedback_connection = None
         self._window_state: int | None = None
         self._assume_closed = profile.get("assume_closed_after_open") is True
+        self._admin_one_tap = profile.get("admin_one_tap_use_login_password") is True
         self._assumed_locked: bool | None = None
         self._assumption_connection = None
         self._cancel_assumption = None
@@ -321,6 +323,31 @@ class LoxoneDoorLock(LoxoneEntity, LockEntity):
             self._window_state = states[self._index] or None
         self.async_write_ha_state()
 
+    async def _async_authorized_code(self, code: str | None) -> str | None:
+        """Opt-in reuse only for an identified, active HA administrator.
+
+        Capture the service context before awaiting: state events or another
+        invocation must never change the identity whose permissions we check.
+        No context/automation is implicitly trusted and no secret is copied to
+        profiles, entity attributes, diagnostics or service-call payloads.
+        """
+        if not self._admin_one_tap:
+            return code
+        context = self._context
+        user_id = getattr(context, "user_id", None)
+        user = await self.hass.auth.async_get_user(user_id) if user_id else None
+        if user is None or not user.is_active or not user.is_admin:
+            raise Unauthorized(context=context, entity_id=self.entity_id)
+        if isinstance(code, str) and code:
+            return code
+        entry = self.hass.config_entries.async_get_entry(self._config_entry_id)
+        if entry is None or entry.domain != "loxone":
+            raise HomeAssistantError("The owning Loxone entry is unavailable")
+        password = entry.options.get(CONF_PASSWORD)
+        if not isinstance(password, str) or not password:
+            raise HomeAssistantError("The existing Loxone login password is unavailable")
+        return password
+
     async def _async_execute(self, profile_key: str, code: str | None = None) -> None:
         action = decode_action(self._profile.get(profile_key))
         if action is None:
@@ -334,12 +361,18 @@ class LoxoneDoorLock(LoxoneEntity, LockEntity):
         if encoded_action in self._secured_actions:
             if not isinstance(code, str) or not code:
                 raise HomeAssistantError("This Loxone action requires its visualization password")
-            await self.async_send_secured_command(uuid, command, code)
+            try:
+                await self.async_send_secured_command(uuid, command, code)
+            except Exception:
+                # Do not surface a transport exception containing credentials.
+                raise HomeAssistantError("The secured Loxone command failed") from None
         else:
             await self.async_send_command(uuid, command)
 
     @property
     def code_format(self) -> str | None:
+        if self._admin_one_tap:
+            return None
         if any(self._profile.get(key) in self._secured_actions for key in (
             "lock_action", "unlock_action", "open_action"
         )):
@@ -347,22 +380,25 @@ class LoxoneDoorLock(LoxoneEntity, LockEntity):
         return None
 
     async def async_lock(self, **kwargs: Any) -> None:
+        code = await self._async_authorized_code(kwargs.get("code"))
         self._clear_assumption()
         self.async_write_ha_state()
-        await self._async_execute("lock_action", kwargs.get("code"))
+        await self._async_execute("lock_action", code)
 
     async def async_unlock(self, **kwargs: Any) -> None:
+        code = await self._async_authorized_code(kwargs.get("code"))
         self._clear_assumption()
         self.async_write_ha_state()
-        await self._async_execute("unlock_action", kwargs.get("code"))
+        await self._async_execute("unlock_action", code)
 
     async def async_open(self, **kwargs: Any) -> None:
+        code = await self._async_authorized_code(kwargs.get("code"))
         self._clear_assumption()
         self.async_write_ha_state()
         generation = self._command_generation
         revision = self._feedback_revision
         connection = self._connection()
-        await self._async_execute("open_action", kwargs.get("code"))
+        await self._async_execute("open_action", code)
         # Successful transmission is NOT confirmation of physical movement.
         # This opt-in display estimate cannot supersede a real status update.
         if (not self._assume_closed or connection is None
