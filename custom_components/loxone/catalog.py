@@ -167,7 +167,7 @@ def entity_is_selected(config_entry: Any, key: str, *fallback_keys: str) -> bool
     """
     options = getattr(config_entry, "options", {}) or {}
     if CONF_SELECTED_ENTITIES not in options:
-        return not key.startswith(("action:", "door:", "sauna:"))
+        return not key.startswith(("action:", "door:", "access_lock:", "sauna:"))
     configured = options.get(CONF_SELECTED_ENTITIES, ())
     if not isinstance(configured, (list, tuple, set)):
         return False
@@ -219,6 +219,15 @@ def build_entity_catalog(structure: dict[str, Any]) -> list[EntityCandidate]:
                     category=category,
                 )
             )
+
+        # A pushbutton is not automatically a door. This separate, opt-in
+        # candidate lets the user explicitly identify a door-release button.
+        if control_type == "Pushbutton":
+            candidates.append(EntityCandidate(
+                key=access_lock_selection_key(uuid, "pulse"), platform="lock",
+                name=name, source_type="Pushbutton (door profile)",
+                source_uuid=uuid, room=room, category=category,
+            ))
 
         if control_type == "LightControllerV2":
             for sub_uuid, subcontrol in (control.get("subControls", {}) or {}).items():
@@ -351,6 +360,12 @@ def build_entity_catalog(structure: dict[str, Any]) -> list[EntityCandidate]:
                         category=category,
                     )
                 )
+                candidates.append(EntityCandidate(
+                    key=access_lock_selection_key(uuid, f"output/{output_number}"),
+                    platform="lock", name=f"{name} · {output_name}",
+                    source_type="NFC Code Touch (door profile)", source_uuid=uuid,
+                    room=room, category=category,
+                ))
 
     candidates.sort(key=lambda item: (item.room.casefold(), item.platform, item.name.casefold(), item.key))
     return candidates
@@ -388,6 +403,32 @@ def _sauna_capability_available(suffix: str, states: dict[str, Any], details: di
 def action_selection_key(uuid: str, command: str) -> str:
     """Return the key used when an action is exposed as a button."""
     return f"action:{uuid}:{command}"
+
+
+def access_lock_selection_key(uuid: str, command: str) -> str:
+    """A distinct opt-in identity; never migrate an existing button implicitly."""
+    return f"access_lock:{uuid}:{command}"
+
+
+def build_feedback_options(structure: dict[str, Any]) -> list[dict[str, str]]:
+    """Only explicitly exported digital inputs, never command/security flags."""
+    result = []
+    for control in (structure.get("controls", {}) or {}).values():
+        state = (control.get("states", {}) or {}).get("active")
+        if control.get("type") != "InfoOnlyDigital" or not isinstance(state, str) or not state:
+            continue
+        room = _lookup_name(structure, "rooms", str(control.get("room", "")))
+        result.append({"value": state, "label": f"{room} · {control.get('name', 'Digital input')}"})
+    return sorted(result, key=lambda item: (item["label"].casefold(), item["value"]))
+
+
+def action_is_secured(structure: dict[str, Any], uuid: str) -> bool:
+    """Read the source control flag, not its name or a cached command result."""
+    return any(
+        str(control.get("uuidAction") or fallback) == uuid
+        and feature_is_enabled(control.get("isSecured"))
+        for fallback, control in (structure.get("controls", {}) or {}).items()
+    )
 
 
 def encode_action(uuid: str, command: str) -> str:
