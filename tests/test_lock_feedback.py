@@ -176,3 +176,59 @@ def test_setup_rejects_control_flags_as_lock_feedback(monkeypatch):
 def test_native_lock_identity_is_unchanged():
     entity, _ = _entity()
     assert entity.unique_id == "gateway-one-synthetic-control-door-synthetic-door"
+
+
+def test_profile_flow_exposes_and_stores_direct_feedback():
+    from custom_components.loxone.config_flow import _EntitySelectionMixin
+
+    class Flow(_EntitySelectionMixin):
+        def async_show_form(self, **kwargs):
+            return kwargs
+
+        async def _async_finish_selection(self):
+            return self._door_profiles
+
+    flow = Flow()
+    flow._structure = _structure()
+    flow._candidates = build_entity_catalog(flow._structure)
+    key = access_lock_selection_key("reader", "output/1")
+    flow._door_keys = [key]
+    flow._door_profiles = {}
+    flow._door_position = 0
+    form = asyncio.run(flow.async_step_door_profile())
+    fields = {str(key) for key in form["data_schema"].schema}
+    assert {"locked_state", "invert_locked_state"} <= fields
+    result = asyncio.run(flow.async_step_door_profile({"locked_state": "bolt"}))
+    assert result[key]["locked_state"] == "bolt"
+    assert result[key]["invert_locked_state"] is False
+    assert result[key]["open_action"] is None
+
+
+def test_local_transport_timer_clears_state_and_is_removed(monkeypatch):
+    entity, api = _entity(binary=True)
+    entity.hass.bus = SimpleNamespace(async_listen=Mock(return_value=Mock()))
+    entity.async_on_remove = Mock()
+    unsubscribe = Mock()
+    timer = {}
+
+    def register(hass, callback, interval):
+        timer["callback"] = callback
+        assert interval.total_seconds() == 5
+        return unsubscribe
+
+    monkeypatch.setattr(lock_module, "async_track_time_interval", register)
+    asyncio.run(entity.async_added_to_hass())
+    entity.async_on_remove.assert_called_once_with(unsubscribe)
+    _event(entity, 1)
+    entity.async_write_ha_state.reset_mock()
+    asyncio.run(timer["callback"](None))
+    entity.async_write_ha_state.assert_not_called()
+    api.is_connected = False
+    asyncio.run(timer["callback"](None))
+    assert entity._reported_locked is None
+    assert not entity.available
+    api.is_connected = True
+    api.connection = object()
+    asyncio.run(timer["callback"](None))
+    assert entity.available and entity.is_locked is None
+    assert entity.async_write_ha_state.call_count == 2

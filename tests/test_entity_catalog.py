@@ -175,14 +175,14 @@ def test_window_monitor_selection_survives_reordering() -> None:
     first_keys = {
         candidate.key
         for candidate in build_entity_catalog(structure)
-        if candidate.platform == "lock"
+        if candidate.platform == "lock" and candidate.source_type == "WindowMonitor"
     }
 
     windows.reverse()
     reordered_keys = {
         candidate.key
         for candidate in build_entity_catalog(structure)
-        if candidate.platform == "lock"
+        if candidate.platform == "lock" and candidate.source_type == "WindowMonitor"
     }
 
     assert reordered_keys == first_keys
@@ -197,7 +197,7 @@ def test_duplicate_legacy_doors_still_get_distinct_selection_keys() -> None:
     lock_keys = [
         candidate.key
         for candidate in build_entity_catalog(structure)
-        if candidate.platform == "lock"
+        if candidate.platform == "lock" and candidate.source_type == "WindowMonitor"
     ]
 
     assert len(lock_keys) == 2
