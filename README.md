@@ -88,12 +88,29 @@ lock-status signal if one is exported (`InfoOnlyDigital.active`: 1 = locked,
 sensor or Home Assistant automation is needed. Do not select a door-closed
 contact or unrelated signal as a lock-status signal.
 
-**Loxone remains the state authority.** No state is inferred from opening,
-locking, unlock requests, timers or the last sent command. With no exported
-status, a door profile shows **unknown**, not a fabricated locked state.
+**Loxone remains the state authority.** By default, no state is inferred from
+commands or timers. With no exported status, a door profile shows **unknown**.
 On connection loss it becomes unavailable; new connections require fresh
 feedback. A closed-only WindowMonitor state does not imply a locked bolt.
 Native WindowMonitor entity IDs and existing command mappings are preserved.
+
+For self-relocking door releases without status feedback, a separate per-door
+option **Assume locked 5 seconds after opening** is available (off by default).
+After this lock entity successfully transmits its mapped `open` command, it
+shows an estimated open state, then an estimated locked state five seconds
+later. Successful transmission is not proof the door moved or locked. A repeat
+open starts a fresh five-second interval; failed commands start no estimate.
+Real Loxone feedback always wins, even if it reports the door still open.
+Feedback updates, disconnects, unload/restart and lock/unlock requests cancel
+the estimate; it is never restored after restart. Commands sent outside this
+entity are not observed and cannot start this fallback.
+
+Estimates use Home Assistant's `assumed_state`, a `mdi:lock-question` icon and
+the explicit `state_estimated` / `state_basis` attributes. The timer sends **no
+locking command** and is not a sensor or a security guarantee. Do not use an
+estimated locked state as proof of building security or emergency-exit safety.
+No helper automation or additional sensor is required. Turn the option off to
+return to strictly reported status.
 
 Loxone `jLocked` means the *control* is inhibited and `lockedOn` means it is held
 on by logic; neither is a door-lock state. NFC `deviceState` describes reader

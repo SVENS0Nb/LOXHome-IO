@@ -1,4 +1,4 @@
-"""Opt-in door locks mirroring Loxone feedback, never command guesses."""
+"""Loxone lock feedback with an explicit, labelled five-second fallback."""
 
 from __future__ import annotations
 
@@ -12,7 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import async_call_later, async_track_time_interval
 
 from . import LoxoneEntity
 from .catalog import (
@@ -188,6 +188,12 @@ class LoxoneDoorLock(LoxoneEntity, LockEntity):
         self._reported_locked: bool | None = None
         self._feedback_connection = None
         self._window_state: int | None = None
+        self._assume_closed = profile.get("assume_closed_after_open") is True
+        self._assumed_locked: bool | None = None
+        self._assumption_connection = None
+        self._cancel_assumption = None
+        self._command_generation = 0
+        self._feedback_revision = 0
         self._attr_device_info = get_or_create_device(
             f"{gateway_id}-{monitor_uuid}-{door_id}",
             name,
@@ -226,6 +232,7 @@ class LoxoneDoorLock(LoxoneEntity, LockEntity):
             if connection is last_connection:
                 return
             last_connection = connection
+            self._clear_assumption()
             if not self._has_current_feedback():
                 self._window_state = None
                 self._reported_locked = None
@@ -236,14 +243,31 @@ class LoxoneDoorLock(LoxoneEntity, LockEntity):
             self.hass, check_transport, timedelta(seconds=5)
         ))
 
+    def _clear_assumption(self):
+        self._command_generation += 1
+        if self._cancel_assumption is not None:
+            self._cancel_assumption()
+            self._cancel_assumption = None
+        self._assumed_locked = None
+        self._assumption_connection = None
+
+    async def async_will_remove_from_hass(self):
+        self._clear_assumption()
+        await super().async_will_remove_from_hass()
+
+    def _current_assumption(self) -> bool | None:
+        connection = self._connection()
+        if connection is not None and connection is self._assumption_connection:
+            return self._assumed_locked
+        return None
+
     @property
     def unique_id(self) -> str:
         if self._binary_source:
             return f"{self._gateway_id}-{self._monitor_uuid}-access-lock-{self._door_id}"
         return f"{self._gateway_id}-{self._monitor_uuid}-door-{self._door_id}"
 
-    @property
-    def is_locked(self) -> bool | None:
+    def _loxone_is_locked(self) -> bool | None:
         if not self._has_current_feedback():
             return None
         if self._binary_source:
@@ -257,9 +281,23 @@ class LoxoneDoorLock(LoxoneEntity, LockEntity):
         return None
 
     @property
+    def is_locked(self) -> bool | None:
+        reported = self._loxone_is_locked()
+        return reported if reported is not None else self._current_assumption()
+
+    @property
+    def assumed_state(self) -> bool:
+        return self._loxone_is_locked() is None and self._current_assumption() is not None
+
+    @property
+    def icon(self) -> str | None:
+        return "mdi:lock-question" if self.assumed_state else None
+
+    @property
     def is_open(self) -> bool | None:
         if self._binary_source or not self._has_current_feedback() or self._window_state is None:
-            return None
+            assumed = self._current_assumption() if self._loxone_is_locked() is None else None
+            return not assumed if assumed is not None else None
         return bool(self._window_state & WINDOW_OPEN)
 
     async def event_handler(self, event) -> None:
@@ -267,6 +305,8 @@ class LoxoneDoorLock(LoxoneEntity, LockEntity):
             return
         if not self._state_uuid or self._state_uuid not in event.data:
             return
+        self._feedback_revision += 1
+        self._clear_assumption()
         self._feedback_connection = self._connection()
         if self._binary_source:
             self._reported_locked = binary_feedback(
@@ -307,13 +347,45 @@ class LoxoneDoorLock(LoxoneEntity, LockEntity):
         return None
 
     async def async_lock(self, **kwargs: Any) -> None:
+        self._clear_assumption()
+        self.async_write_ha_state()
         await self._async_execute("lock_action", kwargs.get("code"))
 
     async def async_unlock(self, **kwargs: Any) -> None:
+        self._clear_assumption()
+        self.async_write_ha_state()
         await self._async_execute("unlock_action", kwargs.get("code"))
 
     async def async_open(self, **kwargs: Any) -> None:
+        self._clear_assumption()
+        self.async_write_ha_state()
+        generation = self._command_generation
+        revision = self._feedback_revision
+        connection = self._connection()
         await self._async_execute("open_action", kwargs.get("code"))
+        # Successful transmission is NOT confirmation of physical movement.
+        # This opt-in display estimate cannot supersede a real status update.
+        if (not self._assume_closed or connection is None
+                or self._connection() is not connection
+                or self._command_generation != generation
+                or self._feedback_revision != revision
+                or self._loxone_is_locked() is not None):
+            return
+        self._assumed_locked = False
+        self._assumption_connection = connection
+
+        async def assume_closed(_now):
+            if generation != self._command_generation:
+                return
+            self._cancel_assumption = None
+            if self._connection() is connection and self._loxone_is_locked() is None:
+                self._assumed_locked = True
+            else:
+                self._clear_assumption()
+            self.async_write_ha_state()
+
+        self._cancel_assumption = async_call_later(self.hass, 5, assume_closed)
+        self.async_write_ha_state()
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -325,4 +397,9 @@ class LoxoneDoorLock(LoxoneEntity, LockEntity):
             "raw_window_state": self._window_state if self._has_current_feedback() else None,
             "state_source": self._state_uuid or None,
             "state_source_kind": "loxone_digital" if self._binary_source else "loxone_window_monitor",
+            "state_estimated": self.assumed_state,
+            "state_basis": "five_second_open_fallback" if self.assumed_state else (
+                "loxone_feedback" if self._loxone_is_locked() is not None else "unknown"
+            ),
+            "assumed_close_delay_seconds": 5 if self._assume_closed else None,
         }

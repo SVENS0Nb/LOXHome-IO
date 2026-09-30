@@ -39,8 +39,9 @@
       },
       "door_profile": {
         "title": "Türprofil {current} von {total}: {door}",
-        "description": "Loxone meldet den Zustand, Home Assistant übernimmt ihn: direkt vom WindowMonitor oder bei einem Türöffnerprofil von einem vorhandenen digitalen Schlossstatus (1 = verriegelt, 0 = entriegelt). Ohne Rückmeldung bleibt der Zustand unbekannt. Geschlossen allein bedeutet nicht verriegelt. Nur bekannte Türaktionen zuordnen; geschützte Aktionen behalten ihre Loxone-Authentifizierung.",
+        "description": "Loxone-Rückmeldungen haben immer Vorrang. Ohne eindeutigen Status bleibt der Zustand unbekannt, sofern du nicht ausdrücklich die 5-Sekunden-Schätzung aktivierst. Diese gilt nur nach einem von dieser Entität gesendeten Öffnungsbefehl und ist kein Verriegelungsnachweis. Nur bekannte Türaktionen und Statussignale zuordnen; geschützte Aktionen behalten ihre Loxone-Authentifizierung.",
         "data": {
+          "assume_closed_after_open": "Ohne Rückmeldung: 5 Sekunden nach Öffnen als verriegelt annehmen (nur geschätzt)",
           "lock_action": "Verriegeln-Aktion",
           "unlock_action": "Entriegeln-Aktion",
           "open_action": "Türfalle öffnen",
@@ -103,8 +104,9 @@
       },
       "door_profile": {
         "title": "Türprofil {current} von {total}: {door}",
-        "description": "Loxone-Zustand direkt übernehmen, ohne Schätzung nach Befehlen. WindowMonitor-Türen verwenden ihren nativen Status. Türöffnerprofile können einen vorhandenen digitalen Schlossstatus verwenden (1 = verriegelt, 0 = entriegelt); sonst leer lassen. Geschlossen allein bedeutet nicht verriegelt. Nicht zugeordnete Aktionen bleiben gesperrt.",
+        "description": "Loxone-Zustand direkt übernehmen. Optional ohne eindeutigen Status: 5 Sekunden nach einem gesendeten Öffnungsbefehl als verriegelt annehmen. Diese Anzeige ist nur geschätzt und schaltet kein Schloss. Echte Rückmeldungen haben Vorrang. Geschlossen allein bedeutet nicht verriegelt; nicht zugeordnete Aktionen bleiben gesperrt.",
         "data": {
+          "assume_closed_after_open": "Ohne Rückmeldung: 5 Sekunden nach Öffnen als verriegelt annehmen (nur geschätzt)",
           "lock_action": "Verriegeln-Aktion",
           "unlock_action": "Entriegeln-Aktion",
           "open_action": "Türfalle öffnen",
