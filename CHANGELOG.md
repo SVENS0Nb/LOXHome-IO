@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.3
+
+- Register the long-running WebSocket listener as a config-entry background task,
+  not a startup task. Existing configured entries no longer prevent Home
+  Assistant from completing boot. Keep explicit stop/unload cleanup and callback.
+- Add regression coverage for startup task registration and listener cancellation.
+
 ## 0.11.2
 
 - Add explicit per-door administrator-only one-tap mode when the visualization

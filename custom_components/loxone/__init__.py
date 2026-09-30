@@ -687,8 +687,12 @@ async def async_setup_entry(hass, config_entry):
                     )
 
     def start_event() -> None:
-        coordinator._listening_task = hass.async_create_task(
-            coordinator.api.start_listening(callback=message_callback)
+        # This connection lives until unload/stop. A tracked startup task would
+        # keep async_block_till_done() waiting forever when HA boots with an entry.
+        coordinator._listening_task = config_entry.async_create_background_task(
+            hass,
+            coordinator.api.start_listening(callback=message_callback),
+            "loxone_websocket_listener",
         )
         coordinator._listening_task.add_done_callback(handle_task_result)
 
